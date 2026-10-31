@@ -4,7 +4,11 @@
 //  - issue-flow init writes its dev dependencies (keeping the ones the repo has) and
 //    .agents/flow.json; upgrade moves its own version; doctor --json prints
 //    FAKE_FLOW_DOCTOR; labels sync --dry-run prints FAKE_LABELS, and labels sync fails
-//    with FAKE_LABELS_FAIL.
+//    with FAKE_LABELS_FAIL. From 0.3.0, apply, like the real one, pins its own version and
+//    adds github-rest only if missing (never skills-manager), makes package.json and
+//    .agents/flow.json if missing, and prints its --json with FAKE_FLOW_KEPT as kept; or
+//    prints FAKE_FLOW_APPLY_OUT instead, or FAKE_FLOW_APPLY_ERROR on stderr and exits 1.
+//    Before 0.3.0 it does not know apply.
 //  - claude-cloud init writes .claude/cloud.json at its version.
 //  - claude-repo-guard, like the real one, installs with apply from 0.5.0 (and on main) and with
 //    install before; the other name fails as the real one does. It writes its manifest at the
@@ -53,6 +57,25 @@ if (spec.startsWith("@ramon-sg/issue-flow@")) {
   const version = spec.split("@").at(-1);
   const pkgFile = join(cwd, "package.json");
   const pkg = readJson(pkgFile) ?? {};
+  const [major, minor] = version.split(".").map(Number);
+  const applies = major > 0 || minor >= 3;
+  if (command === "apply" && !applies) {
+    process.stderr.write('issue-flow: unknown command "apply"\n');
+    process.exit(2);
+  }
+  if (command === "apply") {
+    if (process.env.FAKE_FLOW_APPLY_ERROR) {
+      process.stderr.write(`${process.env.FAKE_FLOW_APPLY_ERROR}\n`);
+      process.exit(1);
+    }
+    const next = readJson(pkgFile) ?? { private: true };
+    next.devDependencies = { ...next.devDependencies, "@ramon-sg/issue-flow": version };
+    if (next.devDependencies["@ramon-sg/github-rest"] === undefined) next.devDependencies["@ramon-sg/github-rest"] = "0.3.0";
+    writeJson(pkgFile, next);
+    if (!existsSync(join(cwd, ".agents", "flow.json"))) writeJson(join(cwd, ".agents", "flow.json"), {});
+    const kept = process.env.FAKE_FLOW_KEPT ? [process.env.FAKE_FLOW_KEPT] : [];
+    process.stdout.write(process.env.FAKE_FLOW_APPLY_OUT ?? `${JSON.stringify({ version, changes: [`package.json: devDependencies: @ramon-sg/issue-flow ${version}`], kept, written: true, next: ["npm install"] })}\n`);
+  }
   if (command === "init") {
     // Like the real one, it keeps the versions the repo already has of its companions.
     pkg.devDependencies = { "@ramon-sg/github-rest": "0.2.1", "@ramon-sg/skills-manager": "1.2.0", ...pkg.devDependencies, "@ramon-sg/issue-flow": version };

@@ -3,10 +3,12 @@
  * install and move the skills, so agent-kitchen is the one that knows the oldest version it
  * works with: it adds it when missing and raises an exact version below it, never lowers
  * one. A range or `workspace:` is the repo's own choice: it is left alone, with a warning if
- * the version it runs is too old. Only in a repo with package.json that uses skills.
+ * the version it runs is too old. Only in a repo that uses skills and has package.json, or
+ * gets one in this run from the flow's install: then the step makes package.json first, and
+ * the flow's `apply`, which never adds skills-manager, adds its own packages to it.
  */
 import { type Check, type Context, type PieceStatus, SKILLS_MANAGER, SKILLS_MANIFEST } from "../piece.js";
-import { dependencyVersion, installedVersion, readJson, setDependency } from "../repo.js";
+import { dependencyVersion, installedVersion, readJson, setDependency, writeJson } from "../repo.js";
 import { compareVersions, isRelease } from "../tools.js";
 
 /** The piece's name, as `--skip` takes it. */
@@ -42,14 +44,15 @@ function below(version: string): boolean {
 }
 
 /**
- * Whether the piece applies: the repo has package.json and uses skills, or this run may
- * install them.
+ * Whether the piece applies: the repo uses skills, or this run may install them, and it has
+ * package.json or the flow's install is about to make one.
  * @param root - The repo.
  * @param withSkills - Whether this run may install skills (`skills` is not left out).
+ * @param flowComing - Whether this run installs the flow.
  * @returns True if it applies.
  */
-function applies(root: string, withSkills: boolean): boolean {
-  return readJson(root, "package.json") !== null && (withSkills || readJson(root, SKILLS_MANIFEST) !== null);
+function applies(root: string, withSkills: boolean, flowComing: boolean): boolean {
+  return (flowComing || readJson(root, "package.json") !== null) && (withSkills || readJson(root, SKILLS_MANIFEST) !== null);
 }
 
 /**
@@ -57,12 +60,28 @@ function applies(root: string, withSkills: boolean): boolean {
  * package.json again when it runs.
  * @param root - The repo.
  * @param withSkills - Whether this run may install skills.
+ * @param flowComing - Whether this run installs the flow, which makes package.json if missing.
  * @returns The piece's status, or null where the piece does not apply.
- * @example skillsManagerStatus(root, true)?.state // "1.1.0, bajo 1.2.0"
+ * @example skillsManagerStatus(root, true, false)?.state // "1.1.0, bajo 1.2.0"
  */
-export function skillsManagerStatus(root: string, withSkills: boolean): PieceStatus | null {
-  if (!applies(root, withSkills)) return null;
+export function skillsManagerStatus(root: string, withSkills: boolean, flowComing: boolean): PieceStatus | null {
+  if (!applies(root, withSkills, flowComing)) return null;
   const summary = "el CLI de las skills, que corre agent-kitchen";
+  if (readJson(root, "package.json") === null) {
+    const make = {
+      piece: NAME,
+      checked: true,
+      downloads: [`${SKILLS_MANAGER}@${MIN_VERSION}`],
+      label: `Crear package.json con skills-manager ${MIN_VERSION}`,
+      run: async (context: Context) => {
+        if (readJson(context.root, "package.json") === null) writeJson(context.root, "package.json", { private: true, devDependencies: { [SKILLS_MANAGER]: MIN_VERSION } });
+        else if (pinned(context.root).kind === "missing") setDependency(context.root, SKILLS_MANAGER, MIN_VERSION);
+        context.note(`${SKILLS_MANAGER} ${MIN_VERSION} en package.json`);
+        return true;
+      },
+    };
+    return { name: NAME, summary, installed: false, state: "no hay package.json", steps: [make] };
+  }
   const now = pinned(root);
   if (now.kind === "other") {
     const old = now.runs !== null && below(now.runs) ? `; corre ${now.runs}, bajo ${MIN_VERSION}` : "";
@@ -95,7 +114,7 @@ export function skillsManagerStatus(root: string, withSkills: boolean): PieceSta
  * @example skillsManagerChecks(root)[0]?.status // "ok"
  */
 export function skillsManagerChecks(root: string): Check[] {
-  if (!applies(root, false)) return [];
+  if (!applies(root, false, false)) return [];
   const now = pinned(root);
   if (now.kind === "missing") return [{ name: NAME, status: "info", detail: `no está en package.json; corre npx agent-kitchen apply para fijar ${MIN_VERSION}` }];
   if (now.kind === "exact")

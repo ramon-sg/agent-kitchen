@@ -17,14 +17,14 @@ Referencia para un agente que trabaja en un repo preparado con `agent-kitchen`. 
 
 | Archivo | Lo escribe | Qué tiene |
 |---|---|---|
-| `package.json` | `issue-flow init` | `@ramon-sg/issue-flow`, `@ramon-sg/github-rest` y `@ramon-sg/skills-manager` como devDependencies con versión exacta; scripts `issue:start`, `worktree:prune`, `pr:worktree` |
+| `package.json` | `issue-flow apply` (`init` antes de 0.3.0) | `@ramon-sg/issue-flow` y `@ramon-sg/github-rest` como devDependencies con versión exacta (antes de 0.3.0, también `@ramon-sg/skills-manager`); scripts `issue:start`, `worktree:prune`, `pr:worktree` |
 | `package.json` | `claude-repo-guard apply` | Scripts `claude:auto` y `claude:free` |
-| `package.json` | `agent-kitchen` (pieza `skills-manager`) | Sube `@ramon-sg/skills-manager` a 1.2.0 si es una versión exacta menor, o lo agrega si falta. Nunca lo baja; un rango no se toca |
-| `.agents/flow.json` | `issue-flow init`, editable | Config del flujo: `baseBranch`, `branch.template`, `worktrees.setup/teardown/ports/dockerProjects`, textos de `start.*`, `plans.dirs`. Esquema: [issue-flow/schema.json](https://github.com/ramon-sg/issue-flow/blob/main/schema.json) |
+| `package.json` | `agent-kitchen` (pieza `skills-manager`) | Sube `@ramon-sg/skills-manager` a 1.2.0 si es una versión exacta menor, o lo agrega si falta; sin `package.json`, si issue-flow se instala en la misma corrida, lo crea con él. Nunca lo baja; un rango no se toca |
+| `.agents/flow.json` | `issue-flow apply` (`init` antes de 0.3.0), editable | Config del flujo: `baseBranch`, `branch.template`, `worktrees.setup/teardown/ports/dockerProjects`, textos de `start.*`, `plans.dirs`. Esquema: [issue-flow/schema.json](https://github.com/ramon-sg/issue-flow/blob/main/schema.json) |
 | `.agents/skills.json` | `skills-manager` | Manifest: qué skills se quieren y de dónde (`catalog`, `plugin`, `repo`, `local`), con el `ref` de cada catálogo |
 | `.agents/skills.lock.json` | `skills-manager` | Lock: tag, commit, hash y archivos editables de cada skill. No se edita a mano |
 | `.agents/skills/<nombre>/` | `skills-manager` | Las skills copiadas. Se commitean |
-| `.claude/settings.json` | `issue-flow init`, `claude-cloud init`, `claude-repo-guard apply`, `skills-manager` | Hooks `SessionStart`, `WorktreeCreate`, `WorktreeRemove`; sandbox; dominios permitidos; `enabledPlugins` en `false` para plugins copiados |
+| `.claude/settings.json` | `issue-flow apply` (`init` antes de 0.3.0), `claude-cloud init`, `claude-repo-guard apply`, `skills-manager` | Hooks `SessionStart`, `WorktreeCreate`, `WorktreeRemove`; sandbox; dominios permitidos; `enabledPlugins` en `false` para plugins copiados |
 | `.claude/cloud.json` | `claude-cloud init`, editable | La versión exacta de `@ramon-sg/claude-cloud`, herramientas, paquetes apt y pasos de setup de la nube |
 | `.claude/repo-guard.config.json` | `agent-kitchen` y el usuario | Opciones del guard; tras editarlo se vuelve a correr `apply` |
 | `.claude/repo-guard.manifest.json` | `claude-repo-guard apply` | Lo que agregó la instalación, para desinstalar exacto. Aquí lee `agent-kitchen` la versión |
@@ -40,7 +40,7 @@ El sandbox de `claude-repo-guard` no deja escribir `.claude/settings.json`, `.cl
 
 | Pieza | Dónde está su versión | Cómo se actualiza |
 |---|---|---|
-| `issue-flow` | `package.json` (versión exacta) | `npx @ramon-sg/issue-flow@<versión> upgrade`, y luego sus skills a la tag `v<versión>` |
+| `issue-flow` | `package.json` (versión exacta) | `npx @ramon-sg/issue-flow@<versión> apply --yes` (`upgrade` antes de 0.3.0), y luego sus skills a la tag `v<versión>`. Con hooks o `$schema` atrás de la versión del repo, `apply` en esa versión |
 | Labels del flujo | GitHub; la lista, en `labels` de `.agents/flow.json` | `issue-flow labels sync` (desde 0.2.6) crea los que faltan; `agent-kitchen apply` lo ofrece y `doctor` los anota |
 | Skills del flujo | `ref` del catálogo `ramon-sg/issue-flow` en `.agents/skills.json` | Siempre en la misma tag que la CLI, porque la llaman |
 | Skills generales | El lock, una tag por skill | `skills-manager update <nombre>` |
