@@ -1,13 +1,17 @@
 /**
  * @file The issue flow (`@ramon-sg/issue-flow`): its CLI, hooks and config, and its skills.
- * The repo's version is the one in package.json. Installing runs its `init` at the latest
- * version; updating runs its `upgrade` at the new one and then moves its skills to the same
- * tag, because the skills call the CLI. If only the skills are off, it moves them alone.
- * From 0.2.6 it also offers `labels sync`, after the install or update, when GitHub lacks
- * some of the labels the flow expects.
- * `init` runs with `--yes`: the person answered agent-kitchen's questions before the steps.
+ * The repo's version is the one in package.json. From 0.3.0, installing and updating run its
+ * `apply` at the latest version, and reading its `--json` tells what it kept as it was; at
+ * the repo's version, `apply` also repairs hooks or a `$schema` its doctor finds behind (a
+ * version raised by hand or by Dependabot). Before 0.3.0, installing runs `init` and
+ * updating runs `upgrade`. After updating or repairing, and after installing with `apply`,
+ * the flow's skills move to the same tag, because they call the CLI. If only the skills are
+ * off, they move alone. From 0.2.6 it also offers `labels sync`, after the install or
+ * update, when GitHub lacks some of the labels the flow expects.
+ * `apply` and `init` run with `--yes`: the person answered agent-kitchen's questions before
+ * the steps.
  */
-import { type Check, type Context, FLOW_CATALOG, FLOW_PACKAGE, type PieceStatus, type Step } from "../piece.js";
+import { type Check, type Context, FLOW_CATALOG, FLOW_CONFIG, FLOW_PACKAGE, type PieceStatus, type Step } from "../piece.js";
 import { dependencyVersion, isObject, readJson } from "../repo.js";
 import { catalogSkills, manifestCatalogs, pinCatalog, updateSkills } from "../skills-files.js";
 import { captureNpx, compareVersions, isRelease, npmLatest, runNpx } from "../tools.js";
@@ -23,6 +27,25 @@ const JSON_DOCTOR = "0.2.0";
 
 /** The first version with `labels sync`. */
 const LABELS_SINCE = "0.2.6";
+
+/** The first version whose `apply` installs, updates and repairs, instead of `init` and `upgrade`. */
+const APPLY_SINCE = "0.3.0";
+
+/** One check of the flow's `doctor --json`. */
+interface FlowCheck {
+  name?: unknown;
+  ok?: unknown;
+  detail?: unknown;
+}
+
+/**
+ * Whether a version installs and updates with `apply`.
+ * @param version - The flow's version.
+ * @returns True from 0.3.0 on.
+ */
+function usesApply(version: string): boolean {
+  return compareVersions(version, APPLY_SINCE) >= 0;
+}
 
 /**
  * The issue flow's version in the repo, as package.json has it: an exact release when the
@@ -93,6 +116,69 @@ async function runFlow(context: Context, version: string, args: string[]): Promi
 }
 
 /**
+ * Runs the flow's `apply` at a version and reads its `--json`: what it kept as it was goes as
+ * a note. Output that is not its JSON counts as a failure, since it does not tell what it wrote.
+ * @param context - Where it runs.
+ * @param version - The version, 0.3.0 or later.
+ * @returns Whether it worked.
+ */
+async function applyFlow(context: Context, version: string): Promise<boolean> {
+  const retry = `npx ${FLOW_PACKAGE}@${version} apply --yes`;
+  const result = await captureNpx(context.root, [`${FLOW_PACKAGE}@${version}`, "apply", "--yes", "--json"]);
+  const output = `${result?.out ?? ""}${result?.err ?? ""}`;
+  if (result === null || result.status !== 0) {
+    context.fail(`issue-flow apply falló; corre '${retry}'.`, output);
+    return false;
+  }
+  let report: unknown;
+  try {
+    report = JSON.parse(result.out);
+  } catch {
+    report = null;
+  }
+  if (!isObject(report) || !Array.isArray(report.kept)) {
+    context.fail(`issue-flow apply no dijo qué hizo; corre '${retry}'.`, output);
+    return false;
+  }
+  for (const line of report.kept) context.note(String(line));
+  return true;
+}
+
+/**
+ * The flow's own `doctor --json` at a version.
+ * @param root - The repo.
+ * @param version - The version, 0.2.0 or later.
+ * @param lookup - True to give up after the lookups' time limit, as the status does.
+ * @returns Its checks, or null if it could not run or its output is not a list.
+ */
+async function flowDoctor(root: string, version: string, lookup = false): Promise<FlowCheck[] | null> {
+  const result = await captureNpx(root, [`${FLOW_PACKAGE}@${version}`, "doctor", "--json"], lookup);
+  try {
+    const found: unknown = JSON.parse(result?.out ?? "");
+    return Array.isArray(found) ? (found as FlowCheck[]) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Whether the flow's doctor finds what `apply` repairs: a hook missing or behind, or the
+ * config's `$schema` behind. A config that is invalid fails the same check but `apply` cannot
+ * fix it, so the `$schema` is told by its detail; and a hook newer than the repo's version
+ * makes `apply` refuse, so it does not count.
+ * @param checks - The doctor's checks.
+ * @param version - The repo's version.
+ * @returns True if `apply` would repair them.
+ */
+function needsRepair(checks: FlowCheck[], version: string): boolean {
+  const hookBehind = (detail: string): boolean => {
+    const found = /^at (\d+\.\d+\.\d+)/.exec(detail)?.[1];
+    return found === undefined || compareVersions(found, version) < 0;
+  };
+  return checks.some((check) => check.ok === false && (String(check.name).endsWith(" hook") ? hookBehind(String(check.detail)) : check.name === FLOW_CONFIG && String(check.detail).includes("$schema")));
+}
+
+/**
  * The labels the flow expects that GitHub lacks, as `labels sync --dry-run --json` of a
  * version tells (a label that only differs in color or description does not count).
  * @param root - The repo.
@@ -136,13 +222,20 @@ function labelsStep(version: string, missing: string[]): Step {
  * @param installed - The repo's version, or null.
  * @param latest - The latest on npm, or null.
  * @param root - The repo.
+ * @param repair - Whether the flow's doctor finds what `apply` repairs, at the repo's version.
  * @returns The step, or null.
  */
-function stepFor(installed: string | null, latest: string | null, root: string): Step | null {
-  if (installed === null && latest !== null)
-    return { piece: NAME, checked: true, downloads: [`${FLOW_PACKAGE}@${latest}`], label: `Instalar issue-flow ${latest}: config del flujo, hooks y scripts`, run: (context) => runFlow(context, latest, ["init", "--yes"]) };
-  if (installed !== null && latest !== null && compareVersions(latest, installed) > 0)
-    return { piece: NAME, checked: true, downloads: [`${FLOW_PACKAGE}@${latest}`], label: `Actualizar issue-flow ${installed} → ${latest}, con sus hooks y sus skills`, run: async (context) => (await runFlow(context, latest, ["upgrade"])) && (await moveSkills(context, latest)) };
+function stepFor(installed: string | null, latest: string | null, root: string, repair: boolean): Step | null {
+  if (installed === null && latest !== null) {
+    const run = usesApply(latest) ? async (context: Context) => (await applyFlow(context, latest)) && (await moveSkills(context, latest)) : (context: Context) => runFlow(context, latest, ["init", "--yes"]);
+    return { piece: NAME, checked: true, downloads: [`${FLOW_PACKAGE}@${latest}`], label: `Instalar issue-flow ${latest}: config del flujo, hooks y scripts`, run };
+  }
+  if (installed !== null && latest !== null && compareVersions(latest, installed) > 0) {
+    const update = (context: Context) => (usesApply(latest) ? applyFlow(context, latest) : runFlow(context, latest, ["upgrade"]));
+    return { piece: NAME, checked: true, downloads: [`${FLOW_PACKAGE}@${latest}`], label: `Actualizar issue-flow ${installed} → ${latest}, con sus hooks y sus skills`, run: async (context) => (await update(context)) && (await moveSkills(context, latest)) };
+  }
+  if (installed !== null && repair)
+    return { piece: NAME, checked: true, downloads: [`${FLOW_PACKAGE}@${installed}`], label: `Reparar issue-flow ${installed}: hooks y $schema`, run: async (context) => (await applyFlow(context, installed)) && (skillsOff(context.root, installed).length === 0 || (await moveSkills(context, installed))) };
   if (installed !== null && skillsOff(root, installed).length > 0)
     return { piece: NAME, checked: true, downloads: [], label: `Poner las skills del flujo en v${installed}, la versión de issue-flow`, run: (context) => moveSkills(context, installed) };
   return null;
@@ -160,10 +253,10 @@ export async function issueFlowStatus(root: string): Promise<PieceStatus> {
   if (spec !== null && !isRelease(spec)) return { name: NAME, summary, installed: true, state: `package.json tiene ${spec}, no una versión exacta; no se toca`, steps: [] };
   const installed = flowVersion(root);
   const latest = await npmLatest(FLOW_PACKAGE);
-  const step = stepFor(installed, latest, root);
   const behind = installed !== null && latest !== null && compareVersions(latest, installed) > 0;
   const target = installed === null || behind ? latest : installed;
-  const missing = target === null ? [] : await missingLabels(root, target);
+  const [missing, checks] = await Promise.all([target === null ? [] : missingLabels(root, target), installed !== null && !behind && usesApply(installed) ? flowDoctor(root, installed, true) : null]);
+  const step = stepFor(installed, latest, root, installed !== null && checks !== null && needsRepair(checks, installed));
   const known = `${latest === null ? " (npm no responde)" : ""}${missing === null ? " (no se pudieron leer los labels de GitHub)" : ""}`;
   const state = installed === null ? `no instalado${known}` : behind ? `${installed}, hay ${latest}${known}` : `${installed}, al día${known}`;
   const steps = [...(step === null ? [] : [step]), ...(target !== null && missing !== null && missing.length > 0 ? [labelsStep(target, missing)] : [])];
@@ -183,15 +276,9 @@ export async function issueFlowChecks(root: string): Promise<Check[]> {
   if (installed === null) return [{ name: NAME, status: "info", detail: `package.json tiene ${spec}, no una versión exacta` }];
   if (compareVersions(installed, JSON_DOCTOR) < 0) return [{ name: NAME, status: "info", detail: `${installed} no tiene doctor --json: corre npx agent-kitchen apply para actualizarlo` }];
   const labelsRead = missingLabels(root, installed);
-  const result = await captureNpx(root, [`${FLOW_PACKAGE}@${installed}`, "doctor", "--json"]);
-  let found: unknown;
-  try {
-    found = JSON.parse(result?.out ?? "");
-  } catch {
-    found = null;
-  }
-  const own: Check[] = Array.isArray(found)
-    ? found.map((check: { name?: unknown; ok?: unknown; detail?: unknown }) => ({ name: `${NAME}: ${String(check.name)}`, status: check.ok === true ? "ok" : "fail", detail: String(check.detail) }))
+  const found = await flowDoctor(root, installed);
+  const own: Check[] = found !== null
+    ? found.map((check) => ({ name: `${NAME}: ${String(check.name)}`, status: check.ok === true ? "ok" : "fail", detail: String(check.detail) }))
     : [{ name: NAME, status: "fail", detail: `no se pudo correr su doctor; corre 'npx ${FLOW_PACKAGE}@${installed} doctor'` }];
   const off = skillsOff(root, installed);
   const count = catalogSkills(root, FLOW_CATALOG).length;

@@ -175,7 +175,8 @@ test("when issue-flow did not install, the skills step leaves the flow's skills 
 
   assert.equal(r.status, 1);
   assert.match(r.out, /sin las skills del flujo, porque issue-flow no está instalado/);
-  assert.deepEqual(repo.calls().at(-1), ["@ramon-sg/skills-manager@1", "init", "--catalog", "ramon-sg/agent-skills", "--select", "catalog:ramon-sg/agent-skills/planning"]);
+  // The skills-manager step made package.json before the flow failed, so its version runs.
+  assert.deepEqual(repo.calls().at(-1), ["@ramon-sg/skills-manager@1.2.0", "init", "--catalog", "ramon-sg/agent-skills", "--select", "catalog:ramon-sg/agent-skills/planning"]);
 });
 
 test("--skip leaves pieces out; an unknown piece is a usage error", () => {
