@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: applied
 type: feature
 prs: [20]
 issue: 15
@@ -26,7 +26,7 @@ Si un hook quedó más nuevo que package.json, apply falla ([V3](#v3)). El paso 
 
 | # | Etapa | Estado | PR |
 |---|---|---|---|
-| 1 | `issue-flow apply` desde 0.3.0 para instalar, actualizar y reparar | en curso | [#20](https://github.com/ramon-sg/agent-kitchen/pull/20) |
+| 1 | `issue-flow apply` desde 0.3.0 para instalar, actualizar y reparar | implementada | [#20](https://github.com/ramon-sg/agent-kitchen/pull/20) |
 
 ## Decisiones propias
 
