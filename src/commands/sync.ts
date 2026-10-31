@@ -54,19 +54,19 @@ export function pieceNames(): string[] {
 }
 
 /**
- * Each piece's status, with every lookup at once. The guard's step and the rule in AGENTS.md
- * depend on whether the flow is about to be installed (it writes package.json), so they wait
- * for the flow's status.
+ * Each piece's status, with every lookup at once. skills-manager, the guard's step and the
+ * rule in AGENTS.md depend on whether the flow is about to be installed (it writes
+ * package.json), so they wait for the flow's status.
  * @param root - The repo.
  * @param skip - The pieces left out.
  * @returns The statuses, in the pieces' order.
  */
 async function statusesOf(root: string, skip: string[]): Promise<PieceStatus[]> {
-  const skillsManager = skip.includes(SKILLS_MANAGER) ? null : skillsManagerStatus(root, !skip.includes(SKILLS));
   const flow = skip.includes(FLOW) ? null : issueFlowStatus(root);
+  const flowComing = (flow ?? Promise.resolve(null)).then((status) => status !== null && !status.installed && status.steps.length > 0);
+  const skillsManager = skip.includes(SKILLS_MANAGER) ? null : flowComing.then((coming) => skillsManagerStatus(root, !skip.includes(SKILLS), coming));
   const cloud = skip.includes(CLOUD) ? null : cloudStatus(root);
   const skills = skip.includes(SKILLS) ? null : skillsStatus(root, !skip.includes(FLOW));
-  const flowComing = (flow ?? Promise.resolve(null)).then((status) => status !== null && !status.installed && status.steps.length > 0);
   const guard = skip.includes(GUARD) ? null : flowComing.then((coming) => guardStatus(root, coming));
   const agentsMd = skip.includes(AGENTS_MD) ? null : flowComing.then((coming) => agentsMdStatus(root, coming));
   const all = await Promise.all([skillsManager, flow, cloud, guard, skills, agentsMd]);
