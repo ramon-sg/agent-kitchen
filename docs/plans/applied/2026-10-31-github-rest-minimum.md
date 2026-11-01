@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: applied
 type: feature
 prs: [22]
 issue: 21
@@ -23,7 +23,7 @@ apply ofrece "Subir github-rest 0.2.1 → 0.3.0", detrás del paso del flujo ([e
 
 | # | Etapa | Estado | PR |
 |---|---|---|---|
-| 1 | Paso que sube github-rest al mínimo de issue-flow | en curso | [#22](https://github.com/ramon-sg/agent-kitchen/pull/22) |
+| 1 | Paso que sube github-rest al mínimo de issue-flow | implementada | [#22](https://github.com/ramon-sg/agent-kitchen/pull/22) |
 
 ## Decisiones propias
 
