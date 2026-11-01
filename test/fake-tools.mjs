@@ -1,6 +1,7 @@
 // Fake npx and npm for the tests: they log each call (program, arguments, folder) to
 // FAKE_LOG and do the little of each tool that agent-kitchen reads back afterwards.
-//  - npm view <pkg> version prints FAKE_NPM's entry for <pkg> (a JSON map), or fails.
+//  - npm view <pkg> version prints FAKE_NPM's entry for <pkg> (a JSON map), or fails; npm
+//    view <pkg>@<v> dependencies --json prints FAKE_NPM_DEPS's entry for <pkg>@<v>, or fails.
 //  - issue-flow init writes its dev dependencies (keeping the ones the repo has) and
 //    .agents/flow.json; upgrade moves its own version; doctor --json prints
 //    FAKE_FLOW_DOCTOR; labels sync --dry-run prints FAKE_LABELS, and labels sync fails
@@ -34,6 +35,15 @@ const writeJson = (path, value) => {
 };
 
 if (program === "npm") {
+  if (args[0] === "view" && args[2] === "dependencies") {
+    const deps = JSON.parse(process.env.FAKE_NPM_DEPS ?? "{}")[args[1]];
+    if (deps === undefined) {
+      process.stderr.write("npm error 404 Not Found\n");
+      process.exit(1);
+    }
+    process.stdout.write(`${JSON.stringify(deps)}\n`);
+    process.exit(0);
+  }
   const versions = JSON.parse(process.env.FAKE_NPM ?? "{}");
   const version = versions[args[1]];
   if (args[0] !== "view" || version === undefined) {
