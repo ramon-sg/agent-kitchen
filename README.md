@@ -39,6 +39,7 @@ Si npm o GitHub no responden, la pieza se muestra pero no se ofrece actualizarla
 - **Qué skills:** la primera vez vienen todas las de los catálogos. Con "Elegir" aparece un menú agrupado por catálogo, con la descripción de cada una. Si un catálogo trae skills que el repo no tiene, se ofrecen como un paso sin marcar.
 - **Skills propias del repo:** si el repo ya tiene una carpeta con el nombre de una skill del catálogo, pregunta una vez si reemplazarlas. Al reemplazar se conserva su `project.md`. Con `--yes` no se reemplazan: se dejan fuera y lo dice.
 - **Seguridad y flujo:** si el repo tiene el flujo, antes de instalar `claude-repo-guard` se escribe en sus opciones que abrir el PR en draft, asignar la issue y agregar el "Slug de rama" son parte del trabajo normal. También se escribe la rama base del flujo como `integrationBranch`. En macOS se agrega `weakerNetworkIsolation`, que `gh` necesita dentro del sandbox. Si `claude-repo-guard` ya estaba al día pero le faltan esas opciones, se ofrecen como un paso.
+- **Qué piezas usa el repo:** `.agents/kitchen.json` guarda por pieza si el repo la quiere (`{ "pieces": { "claude-repo-guard": false } }`). Se crea en la primera corrida de `apply` en una terminal: lo instalado cuenta como sí y lo que ofreció y no marcaste, como no. `false` deja la pieza fuera del menú y de `--yes`, sin desinstalarla; la tabla lo dice y `doctor` no corre sus revisiones. Una pieza que el archivo no menciona se ofrece una vez, marcada "(nueva)"; con `--yes` o sin terminal se deja fuera y lo dice. `--yes`, `--dry-run`, `--skip` y las corridas sin terminal nunca escriben el archivo. Se cambia con `apply --pieces` o a mano. `skills-manager` no tiene decisión: sus skills siguen en `.agents/skills.json`.
 - **La nube no molesta en local:** el hook de sesión solo actúa en la nube. Un repo que nunca se abre ahí no pierde nada.
 
 ## Uso
@@ -49,6 +50,7 @@ npx agent-kitchen apply --dry-run              # solo muestra qué haría
 npx agent-kitchen apply --yes                  # hace lo sugerido sin preguntar
 npx agent-kitchen apply --verbose              # muestra la salida de cada herramienta
 npx agent-kitchen apply --skip claude-cloud    # deja fuera una pieza (o varias, con comas)
+npx agent-kitchen apply --pieces               # cambia qué piezas usa el repo (solo en una terminal)
 npx agent-kitchen doctor                       # revisa cada pieza con su propio doctor
 ```
 
