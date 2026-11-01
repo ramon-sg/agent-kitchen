@@ -2,7 +2,7 @@
 // and keeping own skills (rendering @clack/prompts is not tested; the menus were run by hand in a terminal).
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { menuOptions, skillOptions } from "../dist/menu.js";
+import { menuOptions, pieceOptions, skillOptions } from "../dist/menu.js";
 import { keepOwn, skillsOf } from "../dist/pieces/skills.js";
 import { compareVersions } from "../dist/tools.js";
 import { guardCommand } from "../dist/pieces/guard.js";
@@ -60,4 +60,19 @@ test("the guard installs with apply from 0.5.0 and on main, with install before"
   assert.equal(guardCommand("0.5.0"), "apply");
   assert.equal(guardCommand("0.10.0"), "apply");
   assert.equal(guardCommand(null), "apply");
+});
+
+test("the pieces menu starts with the ticked pieces, in order", () => {
+  const { options, initialValues } = pieceOptions(["issue-flow", "claude-repo-guard"], ["issue-flow"]);
+
+  assert.deepEqual(initialValues, ["issue-flow"]);
+  assert.deepEqual(options.map((option) => option.label), ["issue-flow", "claude-repo-guard"]);
+});
+
+test("noStepsMessage no contradice un archivo de decisiones guardado en la corrida", async () => {
+  const { noStepsMessage } = await import("../dist/commands/sync.js");
+  assert.equal(noStepsMessage("none", false), "No elegiste nada; no se cambió nada.\n");
+  assert.equal(noStepsMessage("leave", false), "No se cambió nada.\n");
+  assert.equal(noStepsMessage("none", true), "No elegiste pasos; solo guardé qué piezas usa el repo.\n");
+  assert.equal(noStepsMessage("leave", true), "No corrí ningún paso; solo guardé qué piezas usa el repo.\n");
 });

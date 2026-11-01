@@ -82,3 +82,19 @@ test("every doctor hint of a piece behind says apply", () => {
   assert.match(r.out, /issue-flow está en 0\.1\.0: corre npx agent-kitchen apply|no tiene doctor --json: corre npx agent-kitchen apply/);
   assert.doesNotMatch(r.out, /corre npx agent-kitchen(?! apply)/);
 });
+
+test("--pieces needs a terminal and goes alone", () => {
+  const repo = makeRepo();
+
+  const yes = repo.cli(["apply", "--pieces", "--yes"]);
+  const dry = repo.cli(["apply", "--pieces", "--dry-run"]);
+  const bare = repo.cli(["apply", "--pieces"]);
+
+  assert.equal(yes.status, 2);
+  assert.match(yes.err, /sin --yes ni --dry-run/);
+  assert.equal(dry.status, 2);
+  assert.match(dry.err, /sin --yes ni --dry-run/);
+  assert.equal(bare.status, 2);
+  assert.match(bare.err, /córrelo en una terminal/);
+  assert.equal(repo.exists(".agents/kitchen.json"), false);
+});

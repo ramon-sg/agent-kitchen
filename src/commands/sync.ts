@@ -15,10 +15,18 @@
  * its base branch, and at the end installs if package.json changed and asks what to do with
  * the changes (see git-finish.ts); the steps then show as plain lines, since a spinner
  * before a question leaves it deaf.
+ * What the repo decided of each piece, in `.agents/kitchen.json`, is respected: a piece set to
+ * false is left out as with `--skip`, and one with no decision is marked as new. Without
+ * asking (`--yes` or no terminal), a new piece that is not installed is left out for the run.
+ * In a terminal, once the person has answered, the pieces without a decision get one and the
+ * file is written; `--yes`, `--dry-run` and `--skip` never write it.
+ * `--pieces` (terminal only, not with `--yes` or `--dry-run`) first asks which pieces the repo
+ * uses, writes all of them to the file, and then goes on as usual.
  */
 import { spinner } from "@clack/prompts";
+import { DECIDABLE, decide, DECISIONS, off, readDecisions, type Saved, undecided, writeDecisions } from "../decisions.js";
 import { baseBranch, branchName, changedPaths, checkReady, finish } from "../git-finish.js";
-import { askFinish, askPath, askReplace, askSkills, askSteps } from "../menu.js";
+import { askFinish, askPath, askPieces, askReplace, askSkills, askSteps } from "../menu.js";
 import { KitError, type Output, UsageError, warn } from "../output.js";
 import type { Context, PieceStatus, Step } from "../piece.js";
 import { cloudStatus, NAME as CLOUD } from "../pieces/cloud.js";
@@ -38,6 +46,8 @@ export interface SyncOptions {
   verbose: boolean;
   skip: string[];
   commit: boolean;
+  /** Ask which pieces the repo uses, save the answer, then go on as usual. */
+  pieces: boolean;
 }
 
 /** Every piece, in the order its steps run. */
@@ -79,16 +89,81 @@ async function statusesOf(root: string, skip: string[]): Promise<PieceStatus[]> 
 }
 
 /**
- * Prints what the repo has of each piece.
+ * Prints what the repo has of each piece, in the pieces' order, and the pieces the repo
+ * decided not to have, with how to change that.
  * @param statuses - The pieces' statuses.
+ * @param decidedOff - The pieces left out by the repo's decision.
  * @param out - Where to write.
  */
-function printStatus(statuses: PieceStatus[], out: Output): void {
-  const width = Math.max(...statuses.map((status) => status.name.length));
+function printStatus(statuses: PieceStatus[], decidedOff: string[], out: Output): void {
+  const width = Math.max(...statuses.map((status) => status.name.length), ...decidedOff.map((name) => name.length));
   const stateWidth = Math.max(...statuses.map((status) => status.state.length));
   out.stdout("\nEste repo tiene:\n");
-  for (const status of statuses) out.stdout(`  ${status.name.padEnd(width)}  ${status.state.padEnd(stateWidth)}  · ${status.summary}\n`);
+  for (const name of PIECES) {
+    for (const status of statuses.filter((each) => each.name === name)) out.stdout(`  ${status.name.padEnd(width)}  ${status.state.padEnd(stateWidth)}  · ${status.summary}\n`);
+    if (decidedOff.includes(name)) out.stdout(`  ${name.padEnd(width)}  fuera por decisión del repo\n`);
+  }
+  if (decidedOff.length > 0) out.stdout(`\nPara cambiar qué piezas usa el repo: agent-kitchen apply --pieces (o edita ${DECISIONS}).\n`);
   out.stdout("\n");
+}
+
+/**
+ * Settles the pieces without a decision and writes the file, unless nothing changed or
+ * nothing was decided.
+ * @param root - The repo.
+ * @param saved - What was read, or null if there is no file.
+ * @param statuses - What each piece found.
+ * @param chosen - The steps the person picked.
+ * @param out - Where to write.
+ * @returns True if the file was written.
+ */
+function saveDecisions(root: string, saved: Saved | null, statuses: PieceStatus[], chosen: Step[], out: Output): boolean {
+  const previous = saved?.pieces ?? {};
+  const pieces = decide(statuses, chosen, previous);
+  const same = Object.keys(pieces).length === Object.keys(previous).length && Object.entries(pieces).every(([name, value]) => previous[name] === value);
+  if (Object.keys(pieces).length === 0 || (saved !== null && same)) return false;
+  writeDecisions(root, pieces, saved?.raw ?? {});
+  out.stdout(savedMessage());
+  return true;
+}
+
+/**
+ * The closing line when no step ran, which must not contradict a file written in this run.
+ * @param why - "leave" if the person left without changing anything, "none" if they picked no steps.
+ * @param wrote - Whether the decisions file was written in this run.
+ * @returns The line, with its newline.
+ * @example noStepsMessage("none", true) // "No elegiste pasos; solo guardé qué piezas usa el repo.\n"
+ */
+export function noStepsMessage(why: "leave" | "none", wrote: boolean): string {
+  if (why === "leave") return wrote ? "No corrí ningún paso; solo guardé qué piezas usa el repo.\n" : "No se cambió nada.\n";
+  return wrote ? "No elegiste pasos; solo guardé qué piezas usa el repo.\n" : "No elegiste nada; no se cambió nada.\n";
+}
+
+/**
+ * The line that says the decisions were saved.
+ * @returns The line.
+ */
+function savedMessage(): string {
+  return `Guardé qué piezas usa el repo en ${DECISIONS}; commitéalo.\n`;
+}
+
+/**
+ * Asks which pieces the repo uses and writes the answer for every decidable piece.
+ * @param root - The repo.
+ * @param saved - What was read, or null if there is no file.
+ * @param out - Where to write.
+ * @returns False if the person cancelled.
+ */
+async function choosePieces(root: string, saved: Saved | null, out: Output): Promise<boolean> {
+  out.stdout("Revisando el repo y las últimas versiones…\n");
+  // No skip here: an installed, undecided piece passed in --skip still starts ticked.
+  const statuses = await statusesOf(root, []);
+  const ticked = DECIDABLE.filter((name) => saved?.pieces[name] === true || (saved?.pieces[name] === undefined && statuses.some((status) => status.name === name && status.installed)));
+  const picked = await askPieces(DECIDABLE, ticked);
+  if (picked === null) return false;
+  writeDecisions(root, Object.fromEntries(DECIDABLE.map((name) => [name, picked.includes(name)])), saved?.raw ?? {});
+  out.stdout(savedMessage());
+  return true;
 }
 
 /**
@@ -217,27 +292,60 @@ async function runStep(root: string, step: Step, progress: Progress, out: Output
  * @param out - Where to write and ask.
  * @returns 0, or 1 if a step failed or the person cancelled.
  * @throws KitError outside the main checkout or with a broken file; UsageError for an unknown piece.
- * @example await sync({ cwd, yes: false, dryRun: true, verbose: false, skip: [], commit: false }, out)
+ * @example await sync({ cwd, yes: false, dryRun: true, verbose: false, skip: [], commit: false, pieces: false }, out)
  */
 export async function sync(options: SyncOptions, out: Output): Promise<number> {
   const unknown = options.skip.find((name) => !pieceNames().includes(name));
   if (unknown !== undefined) throw new UsageError(`no existe la pieza ${unknown}; son ${pieceNames().join(", ")}.`);
   if (options.yes && options.dryRun) throw new UsageError("usa --yes o --dry-run, no los dos.");
+  if (options.pieces && (options.yes || options.dryRun)) throw new UsageError("usa --pieces solo, sin --yes ni --dry-run.");
+  if (options.pieces && !out.interactive) throw new UsageError("--pieces pregunta qué piezas usa el repo; córrelo en una terminal.");
   const root = mainCheckout(options.cwd, "agent-kitchen apply");
   const base = options.commit ? baseBranch(root) : null;
   if (base !== null) checkReady(root, base);
   setVerbose(options.verbose);
+  let saved = readDecisions(root);
+  let wrote = false;
+  for (const warning of saved?.warnings ?? []) warn(out, warning);
+  if (options.pieces) {
+    if (!(await choosePieces(root, saved, out))) {
+      out.stdout("No se cambió nada.\n");
+      return 0;
+    }
+    saved = readDecisions(root);
+    wrote = true;
+  }
+  const skip = [...options.skip, ...off(saved)];
+  const asks = out.interactive && !options.yes && !options.dryRun;
+  const saves = asks && options.skip.length === 0;
   if (out.interactive) out.stdout("Revisando el repo y las últimas versiones…\n");
-  const statuses = await statusesOf(root, options.skip);
-  printStatus(statuses, out);
+  let statuses = await statusesOf(root, skip);
+  if (saved !== null && !asks && !options.dryRun) {
+    const left = undecided(saved).filter((name) => statuses.some((status) => status.name === name && !status.installed));
+    if (left.length > 0) {
+      skip.push(...left);
+      statuses = await statusesOf(root, skip);
+      out.stdout(`Pieza nueva sin decisión: ${left.join(", ")}. Corre agent-kitchen apply en una terminal para elegir.\n`);
+    }
+  }
+  if (saved !== null) {
+    const fresh = undecided(saved);
+    for (const status of statuses.filter((each) => fresh.includes(each.name))) {
+      status.state += " (nueva)";
+      for (const step of status.steps) step.label += " (nueva)";
+    }
+  }
+  printStatus(statuses, off(saved).filter((name) => !options.skip.includes(name)), out);
   const steps = statuses.flatMap((status) => status.steps);
   if (steps.length === 0) {
+    if (saves) saveDecisions(root, saved, statuses, [], out);
     out.stdout("Todo al día: no hay nada que instalar ni actualizar.\n");
     return 0;
   }
   const chosen = await chooseSteps(root, steps, options, out);
+  if (saves && Array.isArray(chosen)) wrote = saveDecisions(root, saved, statuses, chosen, out) || wrote;
   if (chosen === "leave") {
-    out.stdout("No se cambió nada.\n");
+    out.stdout(noStepsMessage("leave", wrote));
     return 0;
   }
   if (chosen === null) {
@@ -245,7 +353,7 @@ export async function sync(options: SyncOptions, out: Output): Promise<number> {
     return options.dryRun || !out.interactive ? 0 : 1;
   }
   if (chosen.length === 0) {
-    if (!options.yes) out.stdout("No elegiste nada; no se cambió nada.\n");
+    if (!options.yes) out.stdout(noStepsMessage("none", wrote));
     return 0;
   }
   const progress = progressFor(out, options.verbose || base !== null);
