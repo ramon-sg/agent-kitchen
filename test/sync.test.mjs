@@ -41,7 +41,7 @@ test("--yes on an empty repo installs everything in order, each piece with its o
   const guard = repo.read(".claude/repo-guard.config.json");
   assert.match(guard.environment[0], /draft PR/);
   assert.equal(guard.weakerNetworkIsolation, process.platform === "darwin" ? true : undefined);
-  assert.match(r.out, /^Instalando issue-flow 0\.2\.0…$/m);
+  assert.match(r.out, /^◒ Instalando issue-flow 0\.2\.0…$/m);
   assert.match(r.out, /✓ issue-flow 0\.2\.0 instalado: config del flujo, hooks y scripts \(\d+,\d s\)$/m);
   assert.doesNotMatch(r.out, /^→ /m);
   assert.deepEqual(repo.npmCalls().filter((args) => args[0] === "install"), [["install"]]);
