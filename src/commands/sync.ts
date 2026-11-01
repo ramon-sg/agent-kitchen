@@ -13,8 +13,8 @@
  * it does what is suggested without asking (and keeps the repo's own skills); without a
  * terminal it only shows the steps. With `--commit` it first checks the repo is clean and on
  * its base branch, and at the end installs if package.json changed and asks what to do with
- * the changes (see git-finish.ts); the steps then show as plain lines, since a spinner
- * before a question leaves it deaf.
+ * the changes (see git-finish.ts), also when the only change is the decisions file below;
+ * the steps then show as plain lines, since a spinner before a question leaves it deaf.
  * What the repo decided of each piece, in `.agents/kitchen.json`, is respected: a piece set to
  * false is left out as with `--skip`, and one with no decision is marked as new. Without
  * asking (`--yes` or no terminal), a new piece that is not installed is left out for the run.
@@ -114,16 +114,17 @@ function printStatus(statuses: PieceStatus[], decidedOff: string[], out: Output)
  * @param saved - What was read, or null if there is no file.
  * @param statuses - What each piece found.
  * @param chosen - The steps the person picked.
+ * @param commits - Whether `--commit` asks about the changes at the end.
  * @param out - Where to write.
  * @returns True if the file was written.
  */
-function saveDecisions(root: string, saved: Saved | null, statuses: PieceStatus[], chosen: Step[], out: Output): boolean {
+function saveDecisions(root: string, saved: Saved | null, statuses: PieceStatus[], chosen: Step[], commits: boolean, out: Output): boolean {
   const previous = saved?.pieces ?? {};
   const pieces = decide(statuses, chosen, previous);
   const same = Object.keys(pieces).length === Object.keys(previous).length && Object.entries(pieces).every(([name, value]) => previous[name] === value);
   if (Object.keys(pieces).length === 0 || (saved !== null && same)) return false;
   writeDecisions(root, pieces, saved?.raw ?? {});
-  out.stdout(savedMessage());
+  out.stdout(savedMessage(commits));
   return true;
 }
 
@@ -141,20 +142,37 @@ export function noStepsMessage(why: "leave" | "none", wrote: boolean): string {
 
 /**
  * The line that says the decisions were saved.
+ * @param commits - Whether `--commit` asks about the changes at the end, so the file need not be committed by hand.
  * @returns The line.
  */
-function savedMessage(): string {
-  return `Guardé qué piezas usa el repo en ${DECISIONS}; commitéalo.\n`;
+function savedMessage(commits: boolean): string {
+  return `Guardé qué piezas usa el repo en ${DECISIONS}${commits ? "" : "; commitéalo"}.\n`;
+}
+
+/** The line the commit of `--commit` adds for the decisions file. */
+const DECISIONS_STEP = `Guardar qué piezas usa el repo en ${DECISIONS}`;
+
+/**
+ * What the commit of `--commit` lists: the steps that worked, and the decisions file if this
+ * run wrote it.
+ * @param done - The labels of the steps that worked.
+ * @param wrote - Whether the decisions file was written in this run.
+ * @returns The labels.
+ * @example commitLabels([], true) // ["Guardar qué piezas usa el repo en .agents/kitchen.json"]
+ */
+export function commitLabels(done: string[], wrote: boolean): string[] {
+  return wrote ? [...done, DECISIONS_STEP] : done;
 }
 
 /**
  * Asks which pieces the repo uses and writes the answer for every decidable piece.
  * @param root - The repo.
  * @param saved - What was read, or null if there is no file.
+ * @param commits - Whether `--commit` asks about the changes at the end.
  * @param out - Where to write.
  * @returns False if the person cancelled.
  */
-async function choosePieces(root: string, saved: Saved | null, out: Output): Promise<boolean> {
+async function choosePieces(root: string, saved: Saved | null, commits: boolean, out: Output): Promise<boolean> {
   out.stdout("Revisando el repo y las últimas versiones…\n");
   // No skip here: an installed, undecided piece passed in --skip still starts ticked.
   const statuses = await statusesOf(root, []);
@@ -162,7 +180,7 @@ async function choosePieces(root: string, saved: Saved | null, out: Output): Pro
   const picked = await askPieces(DECIDABLE, ticked);
   if (picked === null) return false;
   writeDecisions(root, Object.fromEntries(DECIDABLE.map((name) => [name, picked.includes(name)])), saved?.raw ?? {});
-  out.stdout(savedMessage());
+  out.stdout(savedMessage(commits));
   return true;
 }
 
@@ -308,7 +326,7 @@ export async function sync(options: SyncOptions, out: Output): Promise<number> {
   let wrote = false;
   for (const warning of saved?.warnings ?? []) warn(out, warning);
   if (options.pieces) {
-    if (!(await choosePieces(root, saved, out))) {
+    if (!(await choosePieces(root, saved, base !== null, out))) {
       out.stdout("No se cambió nada.\n");
       return 0;
     }
@@ -337,31 +355,37 @@ export async function sync(options: SyncOptions, out: Output): Promise<number> {
   }
   printStatus(statuses, off(saved).filter((name) => !options.skip.includes(name)), out);
   const steps = statuses.flatMap((status) => status.steps);
+  // With --commit, a run that only wrote the decisions file still ends with the question.
+  const endWithoutSteps = async (): Promise<number> => (base !== null && wrote ? commitChanges(root, base, commitLabels([], true), [], options, out) : 0);
   if (steps.length === 0) {
-    if (saves) saveDecisions(root, saved, statuses, [], out);
+    if (saves) wrote = saveDecisions(root, saved, statuses, [], base !== null, out) || wrote;
     out.stdout("Todo al día: no hay nada que instalar ni actualizar.\n");
-    return 0;
+    return endWithoutSteps();
   }
   const chosen = await chooseSteps(root, steps, options, out);
-  if (saves && Array.isArray(chosen)) wrote = saveDecisions(root, saved, statuses, chosen, out) || wrote;
+  if (saves && Array.isArray(chosen)) wrote = saveDecisions(root, saved, statuses, chosen, base !== null, out) || wrote;
   if (chosen === "leave") {
     out.stdout(noStepsMessage("leave", wrote));
-    return 0;
+    return endWithoutSteps();
   }
   if (chosen === null) {
+    if (wrote) {
+      out.stdout(noStepsMessage("leave", wrote));
+      return endWithoutSteps();
+    }
     if (!options.dryRun && out.interactive) warn(out, "no se cambió nada.");
     return options.dryRun || !out.interactive ? 0 : 1;
   }
   if (chosen.length === 0) {
     if (!options.yes) out.stdout(noStepsMessage("none", wrote));
-    return 0;
+    return endWithoutSteps();
   }
   const progress = progressFor(out, options.verbose || base !== null);
   const failed: string[] = [];
   for (const step of chosen) {
     if (!(await runStep(root, step, progress, out))) failed.push(step.label);
   }
-  if (base !== null) return commitChanges(root, base, chosen.filter((step) => !failed.includes(step.label)), failed, options, out);
+  if (base !== null) return commitChanges(root, base, commitLabels(chosen.filter((step) => !failed.includes(step.label)).map((step) => step.label), wrote), failed, options, out);
   const next = `Falta: corre '${packageManager(root)} install', revisa el diff y haz commit.`;
   out.stdout(`\n${failed.length === 0 ? "Listo." : `Terminó, pero fallaron: ${failed.join("; ")}.`} ${next}\n`);
   return failed.length === 0 ? 0 : 1;
@@ -372,13 +396,13 @@ export async function sync(options: SyncOptions, out: Output): Promise<number> {
  * the branch with a PR under --yes) and what git did.
  * @param root - The repo.
  * @param base - The base branch.
- * @param done - The steps that worked.
+ * @param done - What the commit lists: the labels of the steps that worked, and the decisions file if written.
  * @param failed - The labels of the steps that failed.
  * @param options - The options.
  * @param out - Where to write and ask.
  * @returns 0, or 1 if a step, the install or git failed.
  */
-async function commitChanges(root: string, base: string, done: Step[], failed: string[], options: SyncOptions, out: Output): Promise<number> {
+async function commitChanges(root: string, base: string, done: string[], failed: string[], options: SyncOptions, out: Output): Promise<number> {
   const summary = failed.length === 0 ? "Listo." : `Terminó, pero fallaron: ${failed.join("; ")}.`;
   const changed = changedPaths(root);
   if (changed.length === 0) {
@@ -406,7 +430,7 @@ async function commitChanges(root: string, base: string, done: Step[], failed: s
   }
   const branch = branchName(root, new Date());
   const choice = options.yes ? "pr" : await askFinish(base, branch, failed.length > 0);
-  const result = await finish(root, choice, { base, branch, steps: done.map((step) => step.label), paths, manager, packageChanged });
+  const result = await finish(root, choice, { base, branch, steps: done, paths, manager, packageChanged });
   for (const line of result.lines) out.stdout(`${line}\n`);
   return result.ok && failed.length === 0 ? 0 : 1;
 }

@@ -305,3 +305,16 @@ test("--commit --dry-run on a clean repo on main exits 0 and writes nothing", ()
   assert.deepEqual(repo.calls(), []);
   assert.deepEqual(dirty(repo), []);
 });
+
+test("finish commits the decisions file alone, saying so in the body (issue #27)", async () => {
+  const { commitLabels } = await import("../dist/commands/sync.js");
+  const repo = makeRepo({ origin: true });
+  repo.write(".agents/kitchen.json", { pieces: { "claude-repo-guard": false } });
+
+  const result = await finish(repo.main, "base", { base: "main", branch: "chore/x", steps: commitLabels([], true), paths: changedPaths(repo.main), manager: "npm" });
+
+  assert.equal(result.ok, true, result.lines.join("\n"));
+  assert.equal(repo.git("log", "-1", "--format=%b").trim(), "- Guardar qué piezas usa el repo en .agents/kitchen.json");
+  assert.match(repo.git("show", "--name-only", "--format=", "HEAD"), /^\.agents\/kitchen\.json$/m);
+  assert.deepEqual(dirty(repo), []);
+});

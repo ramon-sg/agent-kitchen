@@ -76,3 +76,13 @@ test("noStepsMessage no contradice un archivo de decisiones guardado en la corri
   assert.equal(noStepsMessage("none", true), "No elegiste pasos; solo guardé qué piezas usa el repo.\n");
   assert.equal(noStepsMessage("leave", true), "No corrí ningún paso; solo guardé qué piezas usa el repo.\n");
 });
+
+test("the commit of --commit names the saved decisions next to the steps that ran", async () => {
+  const { commitLabels } = await import("../dist/commands/sync.js");
+  const saved = "Guardar qué piezas usa el repo en .agents/kitchen.json";
+
+  assert.deepEqual(commitLabels([], true), [saved]);
+  assert.deepEqual(commitLabels(["Instalar issue-flow 0.2.0"], true), ["Instalar issue-flow 0.2.0", saved]);
+  assert.deepEqual(commitLabels(["Instalar issue-flow 0.2.0"], false), ["Instalar issue-flow 0.2.0"]);
+  assert.deepEqual(commitLabels([], false), []);
+});
