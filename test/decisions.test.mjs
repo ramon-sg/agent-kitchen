@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DECIDABLE, decide, off, readDecisions, undecided, writeDecisions } from "../dist/decisions.js";
 
-const step = (piece) => ({ piece, label: piece, checked: true, downloads: [], run: async () => true });
+const step = (piece) => ({ piece, text: { kind: "guard-adjust" }, checked: true, downloads: [], run: async () => true });
 const status = (name, installed, steps = []) => ({ name, summary: "", installed, state: "", steps });
 
 test("decide: installed pieces and chosen steps are wanted, offered but unchosen are not", () => {

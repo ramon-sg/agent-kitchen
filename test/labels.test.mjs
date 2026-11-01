@@ -35,7 +35,7 @@ test("--yes runs labels sync at the repo's version", () => {
   const r = repo.cli(["--yes", ...ONLY], { env: { FAKE_NPM: npm("0.2.6"), FAKE_LABELS: labels("spike") } });
 
   assert.equal(r.status, 0, r.err);
-  assert.match(r.out, /✓ Crear en GitHub los labels que faltan: spike/);
+  assert.match(r.out, /✓ Labels creados en GitHub: spike/);
   assert.deepEqual(syncs(repo), [[`${FLOW}@0.2.6`, "labels", "sync"]]);
 });
 
@@ -54,10 +54,10 @@ test("when the sync fails, its step fails with how to retry, and the others stil
   const r = repo.cli(["--yes", "--skip", "skills-manager,claude-repo-guard,skills,agents-md"], { env: { FAKE_NPM: npm("0.2.6"), FAKE_LABELS: labels("spike"), FAKE_LABELS_FAIL: "1" } });
 
   assert.equal(r.status, 1);
-  assert.match(r.out, /✗ Crear en GitHub los labels que faltan: spike/);
+  assert.match(r.out, /✗ Falló: Crear en GitHub los labels que faltan: spike/);
   assert.match(r.err, /issue-flow labels falló; corre 'npx @ramon-sg\/issue-flow@0\.2\.6 labels sync'/);
   assert.match(r.err, /gh auth login is needed/);
-  assert.match(r.out, /✓ Actualizar claude-cloud/);
+  assert.match(r.out, /✓ claude-cloud actualizado de 1\.0\.0 a /);
 });
 
 test("when the labels cannot be read, there is no step, and the state says so", () => {

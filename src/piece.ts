@@ -8,6 +8,8 @@
  * and the version of skills-manager in package.json, which agent-kitchen is the one to run.
  */
 
+import type { StepText } from "./texts/step-text.js";
+
 /** The issue flow on npm. */
 export const FLOW_PACKAGE = "@ramon-sg/issue-flow";
 
@@ -46,10 +48,15 @@ export interface SkillPick {
   replace: string[];
 }
 
-/** One step a piece offers: what it does, what it downloads, and how it runs. */
+/**
+ * One step a piece offers: what it does (as data; texts/ turns it into words for each place
+ * it shows), what it downloads, and how it runs. `fresh` marks a step of a piece the repo has
+ * not decided on yet.
+ */
 export interface Step {
   piece: string;
-  label: string;
+  text: StepText;
+  fresh?: boolean;
   checked: boolean;
   downloads: string[];
   skills?: SkillPick;

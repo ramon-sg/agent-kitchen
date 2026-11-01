@@ -29,7 +29,7 @@ test("updating the flow to 0.3.0 raises github-rest 0.2.1 to the 0.3.0 it asks f
   const r = repo.cli(["--yes", ...ONLY], { env: { FAKE_NPM: npm("0.3.0"), FAKE_NPM_DEPS: deps({ "0.3.0": "^0.3.0" }) } });
 
   assert.equal(r.status, 0, r.err);
-  assert.match(r.out, /✓ Subir github-rest 0\.2\.1 → 0\.3\.0, el mínimo de issue-flow 0\.3\.0/);
+  assert.match(r.out, /✓ github-rest subido de 0\.2\.1 a 0\.3\.0, el mínimo de issue-flow 0\.3\.0/);
   assert.equal(repo.read("package.json").devDependencies[REST], "0.3.0");
   assert.equal(repo.read("package.json").devDependencies[FLOW], "0.3.0");
 });
@@ -40,7 +40,7 @@ test("with the flow at 0.3.0 and up to date, it raises github-rest too", () => {
   const r = repo.cli(["--yes", ...ONLY], { env: { FAKE_NPM: npm("0.3.0"), FAKE_NPM_DEPS: deps({ "0.3.0": "^0.3.0" }) } });
 
   assert.equal(r.status, 0, r.err);
-  assert.match(r.out, /✓ Subir github-rest 0\.2\.1 → 0\.3\.0/);
+  assert.match(r.out, /✓ github-rest subido de 0\.2\.1 a 0\.3\.0/);
   assert.equal(repo.read("package.json").devDependencies[REST], "0.3.0");
 });
 
@@ -84,6 +84,6 @@ test("the minimum is the one of the version the repo ends at, not of the one it 
   const r = repo.cli(["--yes", ...ONLY], { env: { FAKE_NPM: npm("0.3.1"), FAKE_NPM_DEPS: deps({ "0.3.0": "^0.3.0", "0.3.1": "~0.4.0" }) } });
 
   assert.equal(r.status, 0, r.err);
-  assert.match(r.out, /✓ Subir github-rest 0\.3\.0 → 0\.4\.0, el mínimo de issue-flow 0\.3\.1/);
+  assert.match(r.out, /✓ github-rest subido de 0\.3\.0 a 0\.4\.0, el mínimo de issue-flow 0\.3\.1/);
   assert.equal(repo.read("package.json").devDependencies[REST], "0.4.0");
 });

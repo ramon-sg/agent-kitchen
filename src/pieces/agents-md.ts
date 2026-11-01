@@ -106,10 +106,8 @@ export async function agentsMdStatus(root: string, flowComing: boolean): Promise
   const lack = missing(root);
   const summary = "regla de versiones instaladas en AGENTS.md";
   if (!lack.rule && !lack.import) return { name: NAME, summary, installed: true, state: "al día", steps: [] };
-  const files = [...(lack.rule ? ["AGENTS.md"] : []), ...(lack.import ? ["CLAUDE.md"] : [])];
-  const label = lack.rule ? `Agregar a AGENTS.md la regla de versiones instaladas${lack.import ? " (y @AGENTS.md en CLAUDE.md)" : ""}` : "Agregar @AGENTS.md a CLAUDE.md, para que Claude Code lea AGENTS.md";
   const state = lack.rule ? "falta la regla" : "CLAUDE.md no importa AGENTS.md";
-  return { name: NAME, summary, installed: !lack.rule, state, steps: [{ piece: NAME, checked: true, downloads: [], label: `${label}: ${files.join(", ")}`, run: async (context) => write(context) }] };
+  return { name: NAME, summary, installed: !lack.rule, state, steps: [{ piece: NAME, checked: true, downloads: [], text: { kind: "agents-md", rule: lack.rule, claudeImport: lack.import }, run: async (context) => write(context) }] };
 }
 
 /**

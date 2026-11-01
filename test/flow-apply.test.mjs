@@ -34,7 +34,7 @@ test("installing 0.3.0 runs its apply, not init, and then puts the flow's skills
   const r = repo.cli(["--yes", ...ONLY], { env: { FAKE_NPM: npm("0.3.0") } });
 
   assert.equal(r.status, 0, r.err);
-  assert.match(r.out, /✓ Instalar issue-flow 0\.3\.0/);
+  assert.match(r.out, /✓ issue-flow 0\.3\.0 instalado: config del flujo, hooks y scripts \(\d+,\d s\)/);
   assert.ok(flowCalls(repo).includes("apply --yes --json"));
   assert.ok(!flowCalls(repo).includes("init --yes"));
   assert.equal(repo.read("package.json").devDependencies[FLOW], "0.3.0");
@@ -48,7 +48,7 @@ test("updating 0.2.7 to 0.3.0 runs the new one's apply, then moves the flow's sk
   const r = repo.cli(["--yes", ...ONLY], { env: { FAKE_NPM: npm("0.3.0") } });
 
   assert.equal(r.status, 0, r.err);
-  assert.match(r.out, /✓ Actualizar issue-flow 0\.2\.7 → 0\.3\.0/);
+  assert.match(r.out, /✓ issue-flow actualizado de 0\.2\.7 a 0\.3\.0/);
   assert.deepEqual(repo.calls().filter((args) => args[1] === "apply"), [[`${FLOW}@0.3.0`, "apply", "--yes", "--json"]]);
   assert.ok(!flowCalls(repo).includes("upgrade"));
   assert.equal(repo.read(".agents/skills.lock.json").skills["close-pr"].tag, "v0.3.0");
@@ -74,7 +74,7 @@ test("when apply refuses, its step fails with its reason and how to retry", () =
   const r = repo.cli(["--yes", ...ONLY], { env: { FAKE_NPM: npm("0.3.0"), FAKE_FLOW_APPLY_ERROR: reason } });
 
   assert.equal(r.status, 1);
-  assert.match(r.out, /✗ Actualizar issue-flow 0\.2\.7 → 0\.3\.0/);
+  assert.match(r.out, /✗ Falló: Actualizar issue-flow 0\.2\.7 → 0\.3\.0, con sus hooks y sus skills \(\d+,\d s\)/);
   assert.match(r.err, /issue-flow apply falló; corre 'npx @ramon-sg\/issue-flow@0\.3\.0 apply --yes'/);
   assert.ok(r.err.includes(reason));
   assert.equal(repo.read(".agents/skills.lock.json").skills["close-pr"].tag, "v0.2.7");
@@ -115,7 +115,7 @@ test("at 0.3.0 and up to date, a stale hook or $schema offers to repair with app
   const repo = installedRepo({ flow: "0.3.0" });
   const r = repo.cli(["--yes", ...ONLY], { env: { FAKE_NPM: npm("0.3.0"), FAKE_FLOW_DOCTOR: doctor(["SessionStart hook", "at 0.2.7"]) } });
   assert.equal(r.status, 0, r.err);
-  assert.match(r.out, /✓ Reparar issue-flow 0\.3\.0/);
+  assert.match(r.out, /✓ issue-flow 0\.3\.0 reparado/);
   assert.ok(flowCalls(repo).includes("apply --yes --json"));
 });
 
@@ -147,7 +147,7 @@ test("repairing after Dependabot raised package.json also moves the flow's skill
   const r = repo.cli(["--yes", ...ONLY], { env: { FAKE_NPM: npm("0.3.0"), FAKE_FLOW_DOCTOR: doctor(["SessionStart hook", "at 0.2.7, this is 0.3.0"]) } });
 
   assert.equal(r.status, 0, r.err);
-  assert.match(r.out, /✓ Reparar issue-flow 0\.3\.0/);
+  assert.match(r.out, /✓ issue-flow 0\.3\.0 reparado/);
   assert.equal(repo.read(".agents/skills.lock.json").skills["close-pr"].tag, "v0.3.0");
   assert.ok(repo.calls().some((args) => args[1] === "update"));
 });
@@ -189,7 +189,7 @@ test("in a repo without package.json, skills-manager is pinned in the package.js
   const r = repo.cli(["--yes", "--skip", "claude-cloud,claude-repo-guard,agents-md"], { env: { FAKE_NPM: npm("0.3.0") } });
 
   assert.equal(r.status, 0, r.err);
-  assert.match(r.out, /✓ Crear package\.json con skills-manager 1\.2\.0/);
+  assert.match(r.out, /✓ package\.json creado con skills-manager 1\.2\.0/);
   const pkg = repo.read("package.json");
   assert.equal(pkg.private, true);
   assert.equal(pkg.devDependencies["@ramon-sg/skills-manager"], "1.2.0");
