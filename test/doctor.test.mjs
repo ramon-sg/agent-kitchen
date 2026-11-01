@@ -63,3 +63,14 @@ test("doctor does not ask a flow that predates doctor --json, and says to update
   assert.match(r.out, /· issue-flow: 0\.1\.0 no tiene doctor --json: corre npx agent-kitchen apply para actualizarlo/);
   assert.ok(repo.calls().every((args) => !args[0].startsWith("@ramon-sg/issue-flow")));
 });
+
+test("doctor notes a piece the repo left out and does not ask its tool", () => {
+  const repo = installedRepo();
+  repo.write(".agents/kitchen.json", { pieces: { "claude-repo-guard": false } });
+
+  const r = repo.cli(["doctor"]);
+
+  assert.equal(r.status, 0, r.out);
+  assert.match(r.out, /· claude-repo-guard: fuera por decisión del repo/);
+  assert.ok(repo.allCalls().every((args) => !args[0].startsWith("github:ramon-sg/claude-repo-guard")));
+});

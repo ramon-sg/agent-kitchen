@@ -17,10 +17,12 @@
  * asking (`--yes` or no terminal), a new piece that is not installed is left out for the run.
  * In a terminal, once the person has answered, the pieces without a decision get one and the
  * file is written; `--yes`, `--dry-run` and `--skip` never write it.
+ * `--pieces` (terminal only, alone) first asks which pieces the repo uses, writes all of them
+ * to the file, and then goes on as usual.
  */
 import { spinner } from "@clack/prompts";
-import { decide, DECISIONS, off, readDecisions, type Saved, undecided, writeDecisions } from "../decisions.js";
-import { askPath, askReplace, askSkills, askSteps } from "../menu.js";
+import { DECIDABLE, decide, DECISIONS, off, readDecisions, type Saved, undecided, writeDecisions } from "../decisions.js";
+import { askPath, askPieces, askReplace, askSkills, askSteps } from "../menu.js";
 import { KitError, type Output, UsageError, warn } from "../output.js";
 import type { Context, PieceStatus, Step } from "../piece.js";
 import { cloudStatus, NAME as CLOUD } from "../pieces/cloud.js";
@@ -39,6 +41,8 @@ export interface SyncOptions {
   dryRun: boolean;
   verbose: boolean;
   skip: string[];
+  /** Ask which pieces the repo uses, save the answer, then go on as usual. */
+  pieces: boolean;
 }
 
 /** Every piece, in the order its steps run. */
@@ -113,7 +117,34 @@ function saveDecisions(root: string, saved: Saved | null, statuses: PieceStatus[
   const same = Object.keys(pieces).length === Object.keys(previous).length && Object.entries(pieces).every(([name, value]) => previous[name] === value);
   if (Object.keys(pieces).length === 0 || (saved !== null && same)) return;
   writeDecisions(root, pieces, saved?.raw ?? {});
-  out.stdout(`Guardé qué piezas usa el repo en ${DECISIONS}; commitéalo.\n`);
+  out.stdout(savedMessage());
+}
+
+/**
+ * The line that says the decisions were saved.
+ * @returns The line.
+ */
+function savedMessage(): string {
+  return `Guardé qué piezas usa el repo en ${DECISIONS}; commitéalo.\n`;
+}
+
+/**
+ * Asks which pieces the repo uses and writes the answer for every decidable piece.
+ * @param root - The repo.
+ * @param saved - What was read, or null if there is no file.
+ * @param skip - The pieces left out of this run; they are still asked about.
+ * @param out - Where to write.
+ * @returns False if the person cancelled.
+ */
+async function choosePieces(root: string, saved: Saved | null, skip: string[], out: Output): Promise<boolean> {
+  out.stdout("Revisando el repo y las últimas versiones…\n");
+  const statuses = await statusesOf(root, skip);
+  const ticked = DECIDABLE.filter((name) => saved?.pieces[name] === true || (saved?.pieces[name] === undefined && statuses.some((status) => status.name === name && status.installed)));
+  const picked = await askPieces(DECIDABLE, ticked);
+  if (picked === null) return false;
+  writeDecisions(root, Object.fromEntries(DECIDABLE.map((name) => [name, picked.includes(name)])), saved?.raw ?? {});
+  out.stdout(savedMessage());
+  return true;
 }
 
 /**
@@ -242,16 +273,25 @@ async function runStep(root: string, step: Step, progress: Progress, out: Output
  * @param out - Where to write and ask.
  * @returns 0, or 1 if a step failed or the person cancelled.
  * @throws KitError outside the main checkout or with a broken file; UsageError for an unknown piece.
- * @example await sync({ cwd, yes: false, dryRun: true, verbose: false, skip: [] }, out)
+ * @example await sync({ cwd, yes: false, dryRun: true, verbose: false, skip: [], pieces: false }, out)
  */
 export async function sync(options: SyncOptions, out: Output): Promise<number> {
   const unknown = options.skip.find((name) => !pieceNames().includes(name));
   if (unknown !== undefined) throw new UsageError(`no existe la pieza ${unknown}; son ${pieceNames().join(", ")}.`);
   if (options.yes && options.dryRun) throw new UsageError("usa --yes o --dry-run, no los dos.");
+  if (options.pieces && (options.yes || options.dryRun)) throw new UsageError("usa --pieces solo, sin --yes ni --dry-run.");
+  if (options.pieces && !out.interactive) throw new UsageError("--pieces pregunta qué piezas usa el repo; córrelo en una terminal.");
   const root = mainCheckout(options.cwd, "agent-kitchen apply");
   setVerbose(options.verbose);
-  const saved = readDecisions(root);
+  let saved = readDecisions(root);
   for (const warning of saved?.warnings ?? []) warn(out, warning);
+  if (options.pieces) {
+    if (!(await choosePieces(root, saved, options.skip, out))) {
+      out.stdout("No se cambió nada.\n");
+      return 0;
+    }
+    saved = readDecisions(root);
+  }
   const skip = [...options.skip, ...off(saved)];
   const asks = out.interactive && !options.yes && !options.dryRun;
   const saves = asks && options.skip.length === 0;

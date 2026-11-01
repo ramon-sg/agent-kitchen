@@ -25,6 +25,7 @@ const HANDED_OVER = "AGENT_KITCHEN_HANDED_OVER";
 /** Usage text. */
 const USAGE = `Uso:
   agent-kitchen apply [--yes | --dry-run] [--verbose] [--skip <pieza>,...]
+  agent-kitchen apply --pieces
   agent-kitchen doctor
 
 agent-kitchen revisa cada pieza de las herramientas de agentes del repo (${pieceNames().join(", ")}),
@@ -32,7 +33,8 @@ muestra qué tiene el repo y la última versión de cada una, y apply ofrece ins
 y actualizar lo que está atrasado. En una terminal pregunta una vez: hacer todo lo sugerido,
 o elegir los pasos y las skills. --yes hace lo sugerido sin preguntar; sin terminal solo lo
 muestra. --verbose muestra la salida de cada herramienta. Córrelo en la copia principal del
-repo, desde tu terminal. Sin subcomando hace lo mismo que apply, por ahora.
+repo, desde tu terminal. apply --pieces elige qué piezas usa el repo y lo guarda en
+.agents/kitchen.json (solo, en una terminal). Sin subcomando hace lo mismo que apply, por ahora.
 
 doctor corre las revisiones de cada pieza en la versión del repo, sin cambiar nada.`;
 
@@ -81,7 +83,7 @@ async function main(argv: string[]): Promise<number> {
   const { values, positionals } = parseArgs({
     args: argv,
     allowPositionals: true,
-    options: { yes: { type: "boolean" }, "dry-run": { type: "boolean" }, verbose: { type: "boolean", short: "v" }, skip: { type: "string" }, help: { type: "boolean", short: "h" }, version: { type: "boolean" } },
+    options: { yes: { type: "boolean" }, "dry-run": { type: "boolean" }, verbose: { type: "boolean", short: "v" }, skip: { type: "string" }, pieces: { type: "boolean" }, help: { type: "boolean", short: "h" }, version: { type: "boolean" } },
   });
   if (values.help === true) {
     out.stdout(`${USAGE}\n`);
@@ -97,12 +99,12 @@ async function main(argv: string[]): Promise<number> {
   const [command, ...rest] = positionals;
   if (rest.length > 0 || (command !== undefined && command !== "doctor" && command !== "apply")) throw new UsageError(`no existe el comando ${positionals.join(" ")}.`);
   if (command === "doctor") {
-    if (values.yes !== undefined || values["dry-run"] !== undefined || values.skip !== undefined || values.verbose !== undefined) throw new UsageError("doctor no lleva opciones.");
+    if (values.yes !== undefined || values["dry-run"] !== undefined || values.skip !== undefined || values.verbose !== undefined || values.pieces !== undefined) throw new UsageError("doctor no lleva opciones.");
     return doctor(process.cwd(), out);
   }
   if (command === undefined) out.stderr("agent-kitchen: usa 'agent-kitchen apply'; sin subcomando dejará de instalar en una versión mayor.\n");
   const skip = (values.skip ?? "").split(",").map((name) => name.trim()).filter((name) => name !== "");
-  return sync({ cwd: process.cwd(), yes: values.yes ?? false, dryRun: values["dry-run"] ?? false, verbose: values.verbose ?? false, skip }, out);
+  return sync({ cwd: process.cwd(), yes: values.yes ?? false, dryRun: values["dry-run"] ?? false, verbose: values.verbose ?? false, skip, pieces: values.pieces ?? false }, out);
 }
 
 try {

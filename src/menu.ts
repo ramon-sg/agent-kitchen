@@ -37,6 +37,17 @@ export function menuOptions(steps: Step[]): { options: { value: number; label: s
 }
 
 /**
+ * The pieces menu's options: each piece by its name, ticked if the repo uses it.
+ * @param names - The pieces, in the order to show them.
+ * @param ticked - The ones ticked at the start.
+ * @returns The options and the ones ticked at the start.
+ * @example pieceOptions(["issue-flow", "skills"], ["skills"]).initialValues // ["skills"]
+ */
+export function pieceOptions(names: string[], ticked: string[]): { options: { value: string; label: string }[]; initialValues: string[] } {
+  return { options: names.map((name) => ({ value: name, label: name })), initialValues: names.filter((name) => ticked.includes(name)) };
+}
+
+/**
  * The skills menu's options: grouped by catalog, each with its description cut short.
  * @param candidates - What the catalogs offer.
  * @returns The groups.
@@ -80,6 +91,20 @@ export async function askSteps(steps: Step[]): Promise<Step[] | null> {
   const picked = await multiselect({ message: "¿Qué pasos hago?", options, initialValues, required: false });
   if (isCancel(picked)) return null;
   return steps.filter((_, index) => picked.includes(index));
+}
+
+/**
+ * Asks which pieces the repo uses.
+ * @param names - The pieces.
+ * @param ticked - The ones ticked at the start.
+ * @returns The picked pieces, or null if the person cancelled.
+ * @example await askPieces(["issue-flow", "skills"], ["skills"])
+ */
+export async function askPieces(names: string[], ticked: string[]): Promise<string[] | null> {
+  spanishKeys();
+  const { options, initialValues } = pieceOptions(names, ticked);
+  const picked = await multiselect({ message: "¿Qué piezas usa este repo?", options, initialValues, required: false });
+  return isCancel(picked) ? null : picked;
 }
 
 /**
