@@ -18,21 +18,32 @@
 //  - skills-manager add --candidates prints FAKE_CANDIDATES; init writes a manifest; check
 //    fails with FAKE_CHECK_FAIL; update takes one name, like the real one (which ignores the
 //    rest), and moves that skill in the lock to its catalog's ref, or to FAKE_UPDATE_TAG.
+//  - github-rest pr create prints a PR's URL. Each call logs GH_REPO too.
+//  - npm install and pnpm install write their lockfile, or exit 1 if FAKE_FAIL is "install".
 // Any npx call whose arguments contain FAKE_FAIL exits 1, saying so on stderr. A download
 // ahead of a step (`npx --package <spec>`) does nothing. Every other npx call prints
 // FAKE_SAY, if set, as a tool's own output would be.
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
-const program = process.env.FAKE_AS === "npm" ? "npm" : "npx";
+const program = process.env.FAKE_AS ?? "npx";
 const args = process.argv.slice(2);
-appendFileSync(process.env.FAKE_LOG, `${JSON.stringify({ program, args, cwd: process.cwd() })}\n`);
+appendFileSync(process.env.FAKE_LOG, `${JSON.stringify({ program, args, cwd: process.cwd(), ghRepo: process.env.GH_REPO ?? null })}\n`);
 
 const readJson = (path) => (existsSync(path) ? JSON.parse(readFileSync(path, "utf8")) : null);
 const writeJson = (path, value) => {
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, JSON.stringify(value, null, 2));
 };
+
+if ((program === "npm" || program === "pnpm") && args[0] === "install") {
+  if (process.env.FAKE_FAIL && args.join(" ").includes(process.env.FAKE_FAIL)) {
+    process.stderr.write(`fake: ${program} install failed\n`);
+    process.exit(1);
+  }
+  writeFileSync(join(process.cwd(), program === "npm" ? "package-lock.json" : "pnpm-lock.yaml"), "lock\n");
+  process.exit(0);
+}
 
 if (program === "npm") {
   if (args[0] === "view" && args[2] === "dependencies") {
@@ -102,6 +113,8 @@ if (spec.startsWith("@ramon-sg/issue-flow@")) {
     process.stderr.write("fake: gh auth login is needed\n");
     process.exit(1);
   }
+} else if (spec.startsWith("@ramon-sg/github-rest@") && command === "pr" && rest[0] === "create") {
+  process.stdout.write("https://github.com/o/r/pull/7\n");
 } else if (spec.startsWith("@ramon-sg/claude-cloud@") && command === "init") {
   const version = spec.split("@").at(-1);
   writeJson(join(cwd, ".claude", "cloud.json"), { version: version === "1" ? "1.0.0" : version });

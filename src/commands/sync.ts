@@ -1,5 +1,5 @@
 /**
- * @file `agent-kitchen apply [--yes] [--dry-run] [--verbose] [--skip <piece>,...]`: the one command
+ * @file `agent-kitchen apply [--yes] [--dry-run] [--commit] [--verbose] [--skip <piece>,...]`: the one command
  * that changes the repo (and, for now, also the bare `agent-kitchen`).
  * It looks at each piece (the version of skills-manager, the issue flow, claude-cloud,
  * claude-repo-guard, the skills, the rule in AGENTS.md) with
@@ -11,18 +11,22 @@
  * flow's version), one line each, with the
  * tools' output only when one fails; one that fails does not stop the rest. With `--yes`
  * it does what is suggested without asking (and keeps the repo's own skills); without a
- * terminal it only shows the steps.
+ * terminal it only shows the steps. With `--commit` it first checks the repo is clean and on
+ * its base branch, and at the end installs if package.json changed and asks what to do with
+ * the changes (see git-finish.ts); the steps then show as plain lines, since a spinner
+ * before a question leaves it deaf.
  * What the repo decided of each piece, in `.agents/kitchen.json`, is respected: a piece set to
  * false is left out as with `--skip`, and one with no decision is marked as new. Without
  * asking (`--yes` or no terminal), a new piece that is not installed is left out for the run.
  * In a terminal, once the person has answered, the pieces without a decision get one and the
  * file is written; `--yes`, `--dry-run` and `--skip` never write it.
- * `--pieces` (terminal only, alone) first asks which pieces the repo uses, writes all of them
- * to the file, and then goes on as usual.
+ * `--pieces` (terminal only, not with `--yes` or `--dry-run`) first asks which pieces the repo
+ * uses, writes all of them to the file, and then goes on as usual.
  */
 import { spinner } from "@clack/prompts";
 import { DECIDABLE, decide, DECISIONS, off, readDecisions, type Saved, undecided, writeDecisions } from "../decisions.js";
-import { askPath, askPieces, askReplace, askSkills, askSteps } from "../menu.js";
+import { baseBranch, branchName, changedPaths, checkReady, finish } from "../git-finish.js";
+import { askFinish, askPath, askPieces, askReplace, askSkills, askSteps } from "../menu.js";
 import { KitError, type Output, UsageError, warn } from "../output.js";
 import type { Context, PieceStatus, Step } from "../piece.js";
 import { cloudStatus, NAME as CLOUD } from "../pieces/cloud.js";
@@ -32,7 +36,7 @@ import { keepOwn, NAME as SKILLS, ownInPick, skillsStatus } from "../pieces/skil
 import { agentsMdStatus, NAME as AGENTS_MD } from "../pieces/agents-md.js";
 import { NAME as SKILLS_MANAGER, skillsManagerStatus } from "../pieces/skills-manager.js";
 import { mainCheckout, packageManager } from "../repo.js";
-import { download, failedOutput, setVerbose } from "../tools.js";
+import { download, failedOutput, runInstall, setVerbose } from "../tools.js";
 
 /** Options of the command. */
 export interface SyncOptions {
@@ -41,6 +45,7 @@ export interface SyncOptions {
   dryRun: boolean;
   verbose: boolean;
   skip: string[];
+  commit: boolean;
   /** Ask which pieces the repo uses, save the answer, then go on as usual. */
   pieces: boolean;
 }
@@ -287,7 +292,7 @@ async function runStep(root: string, step: Step, progress: Progress, out: Output
  * @param out - Where to write and ask.
  * @returns 0, or 1 if a step failed or the person cancelled.
  * @throws KitError outside the main checkout or with a broken file; UsageError for an unknown piece.
- * @example await sync({ cwd, yes: false, dryRun: true, verbose: false, skip: [], pieces: false }, out)
+ * @example await sync({ cwd, yes: false, dryRun: true, verbose: false, skip: [], commit: false, pieces: false }, out)
  */
 export async function sync(options: SyncOptions, out: Output): Promise<number> {
   const unknown = options.skip.find((name) => !pieceNames().includes(name));
@@ -296,6 +301,8 @@ export async function sync(options: SyncOptions, out: Output): Promise<number> {
   if (options.pieces && (options.yes || options.dryRun)) throw new UsageError("usa --pieces solo, sin --yes ni --dry-run.");
   if (options.pieces && !out.interactive) throw new UsageError("--pieces pregunta qué piezas usa el repo; córrelo en una terminal.");
   const root = mainCheckout(options.cwd, "agent-kitchen apply");
+  const base = options.commit ? baseBranch(root) : null;
+  if (base !== null) checkReady(root, base);
   setVerbose(options.verbose);
   let saved = readDecisions(root);
   let wrote = false;
@@ -349,12 +356,57 @@ export async function sync(options: SyncOptions, out: Output): Promise<number> {
     if (!options.yes) out.stdout(noStepsMessage("none", wrote));
     return 0;
   }
-  const progress = progressFor(out, options.verbose);
+  const progress = progressFor(out, options.verbose || base !== null);
   const failed: string[] = [];
   for (const step of chosen) {
     if (!(await runStep(root, step, progress, out))) failed.push(step.label);
   }
+  if (base !== null) return commitChanges(root, base, chosen.filter((step) => !failed.includes(step.label)), failed, options, out);
   const next = `Falta: corre '${packageManager(root)} install', revisa el diff y haz commit.`;
   out.stdout(`\n${failed.length === 0 ? "Listo." : `Terminó, pero fallaron: ${failed.join("; ")}.`} ${next}\n`);
   return failed.length === 0 ? 0 : 1;
+}
+
+/**
+ * The end of `--commit`: the install if package.json changed, the changes, the question (or
+ * the branch with a PR under --yes) and what git did.
+ * @param root - The repo.
+ * @param base - The base branch.
+ * @param done - The steps that worked.
+ * @param failed - The labels of the steps that failed.
+ * @param options - The options.
+ * @param out - Where to write and ask.
+ * @returns 0, or 1 if a step, the install or git failed.
+ */
+async function commitChanges(root: string, base: string, done: Step[], failed: string[], options: SyncOptions, out: Output): Promise<number> {
+  const summary = failed.length === 0 ? "Listo." : `Terminó, pero fallaron: ${failed.join("; ")}.`;
+  const changed = changedPaths(root);
+  if (changed.length === 0) {
+    out.stdout(`\n${summary} No cambió ningún archivo: no hay nada que commitear.\n`);
+    return failed.length === 0 ? 0 : 1;
+  }
+  const manager = packageManager(root);
+  const packageChanged = changed.includes("package.json");
+  if (packageChanged) {
+    const label = `Instalar las dependencias con ${manager}`;
+    out.stdout(`→ ${label}\n`);
+    const installed = await runInstall(root, manager);
+    out.stdout(`${installed.ok ? "✓" : "✗"} ${label}\n`);
+    if (!installed.ok) {
+      out.stderr(failedOutput(installed.output));
+      out.stdout(`\n${summary} No commiteé: el install falló y los cambios quedan sin commit.\n`);
+      return 1;
+    }
+  }
+  const paths = changedPaths(root);
+  out.stdout(`\n${summary} Cambios:\n${paths.map((path) => `  ${path}`).join("\n")}\n`);
+  if (failed.length > 0 && options.yes) {
+    out.stdout("No commiteé porque algún paso falló; los cambios quedan sin commit.\n");
+    return 1;
+  }
+  const branch = branchName(root, new Date());
+  const choice = options.yes ? "pr" : await askFinish(base, branch, failed.length > 0);
+  const result = await finish(root, choice, { base, branch, steps: done.map((step) => step.label), paths, manager, packageChanged });
+  for (const line of result.lines) out.stdout(`${line}\n`);
+  return result.ok && failed.length === 0 ? 0 : 1;
 }

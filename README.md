@@ -48,6 +48,7 @@ Si npm o GitHub no responden, la pieza se muestra pero no se ofrece actualizarla
 npx agent-kitchen apply                        # pregunta, en una terminal (Enter: todo lo sugerido)
 npx agent-kitchen apply --dry-run              # solo muestra qué haría
 npx agent-kitchen apply --yes                  # hace lo sugerido sin preguntar
+npx agent-kitchen apply --commit               # al final, pregunta si commitear, en una rama o con PR
 npx agent-kitchen apply --verbose              # muestra la salida de cada herramienta
 npx agent-kitchen apply --skip claude-cloud    # deja fuera una pieza (o varias, con comas)
 npx agent-kitchen apply --pieces               # cambia qué piezas usa el repo (solo en una terminal)
@@ -58,7 +59,14 @@ npx agent-kitchen doctor                       # revisa cada pieza con su propio
 
 - **Sin terminal y sin `--yes`** (por ejemplo, desde un agente), solo muestra lo que ofrecería.
 - **Corre en el checkout principal,** no en un worktree, y desde tu terminal. Dentro de una sesión de Claude, el sandbox de `claude-repo-guard` no deja escribir `.claude/settings.json`.
-- **Al terminar,** corre el `install` de tu gestor de paquetes, revisa el diff y haz commit.
+- **Al terminar,** corre el `install` de tu gestor de paquetes, revisa el diff y haz commit. O usa `--commit`.
+
+**`--commit`** deja los cambios commiteados sin que lo haga un agente:
+
+- **Antes de cualquier paso,** exige el repo sin cambios (también sin seguimiento; los worktrees de `.claude/worktrees/` no cuentan) y en la rama base: `baseBranch` de `.agents/flow.json`, si no la rama por defecto de `origin`, si no `main`. Con `--dry-run` hace solo esta revisión y lista los pasos.
+- **Al terminar,** si cambió `package.json`, corre el `install` de tu gestor para que el lockfile entre en el commit. Muestra los archivos cambiados y pregunta: dejarlos sin commit (por defecto), commit en la base, commit en una rama nueva `chore/agent-kitchen-apply-<fecha>`, o rama nueva con push y PR (con `@ramon-sg/github-rest`).
+- **Con rama,** la copia principal pasa por la rama solo mientras corre el comando: commitea ahí (los hooks de git corren, y uno que prohíbe commitear en la base no la frena) y vuelve a la base sin los cambios. Si el push o el PR fallan, la rama queda y la salida dice qué correr.
+- **Con `--yes`,** elige la rama con PR. Si algún paso falló, no commitea.
 
 **`doctor`** corre el doctor de cada herramienta en la versión del repo: `issue-flow doctor --json`, `skills-manager check` y `claude-repo-guard doctor --json`. Además revisa que `skills-manager` esté al menos en 1.2.0, que las skills del flujo estén en la tag de su CLI, qué labels del flujo le faltan a GitHub (con `·`), que `.claude/cloud.json` fije una versión exacta y, en macOS, `weakerNetworkIsolation`. En un repo con `package.json`, también la línea de `AGENTS.md` y, si hay `CLAUDE.md`, su `@AGENTS.md`. Lo que no está instalado o tiene una versión nueva solo se anota con `·`. Sale con 1 si algo falla (`✗`).
 

@@ -6,6 +6,7 @@
  */
 import { styleText } from "node:util";
 import { confirm, groupMultiselect, isCancel, MULTISELECT_INSTRUCTIONS, multiselect, select, SELECT_INSTRUCTIONS } from "@clack/prompts";
+import type { FinishChoice } from "./git-finish.js";
 import type { Candidate, Step } from "./piece.js";
 
 /** What the person wants after seeing the table. */
@@ -133,4 +134,28 @@ export async function askReplace(own: string[]): Promise<boolean | null> {
     inactive: "No, dejarlas fuera",
   });
   return isCancel(answer) ? null : answer;
+}
+
+/**
+ * Asks, after the steps, what to do with the changes. Leaving them is the default, and
+ * cancelling leaves them too.
+ * @param base - The base branch.
+ * @param branch - The name of the new branch.
+ * @param failed - Whether a step failed, to warn above the question.
+ * @returns The answer.
+ * @example await askFinish("main", "chore/agent-kitchen-apply-2026-11-01", false) // "pr"
+ */
+export async function askFinish(base: string, branch: string, failed: boolean): Promise<FinishChoice> {
+  spanishKeys();
+  const answer = await select<FinishChoice>({
+    message: failed ? "Algún paso falló. ¿Qué hago con los cambios?" : "¿Qué hago con los cambios?",
+    initialValue: "leave",
+    options: [
+      { value: "leave", label: "Dejarlos sin commit" },
+      { value: "base", label: `Commit en ${base}` },
+      { value: "branch", label: `Commit en una rama nueva, ${branch}`, hint: `${base} queda como está` },
+      { value: "pr", label: "Commit en una rama nueva, push y PR", hint: `contra ${base}` },
+    ],
+  });
+  return isCancel(answer) ? "leave" : answer;
 }
