@@ -177,7 +177,7 @@ async function updateStep(root: string, catalog: string, ref: string | null): Pr
     piece: NAME,
     checked: true,
     downloads: [skillsManagerSpec(root)],
-    label: `Actualizar skills de ${catalog} ${from} → v${latest}: ${behind.map((skill) => skill.name).join(", ")}`,
+    text: { kind: "skills-update", catalog, from, to: latest, names: behind.map((skill) => skill.name) },
     run: async (context) => {
       if (ref !== null) pinCatalog(context.root, catalog, `v${latest}`);
       const failed = await updateSkills(context.root, behind.map((skill) => skill.name));
@@ -218,10 +218,9 @@ export async function skillsStatus(root: string, withFlow: boolean): Promise<Pie
     });
     const offered = candidates ?? fallback;
     const catalogs = [...new Set(offered.map((candidate) => candidate.catalog))];
-    const label = `Instalar ${offered.length} skills de ${catalogs.join(" y ")}`;
     const skills = { candidates: offered, picked: offered.map((candidate) => candidate.id), replace: [] };
     const state = candidates === null ? "no instaladas (no se pudieron leer los catálogos)" : "no instaladas";
-    return { name: NAME, summary, installed: false, state, steps: [{ piece: NAME, checked: true, downloads: [], label, skills, run: (context) => install(context, skills) }] };
+    return { name: NAME, summary, installed: false, state, steps: [{ piece: NAME, checked: true, downloads: [], text: { kind: "skills-install", count: offered.length, catalogs }, skills, run: (context) => install(context, skills) }] };
   }
   const general = manifestCatalogs(root).filter((source) => source.catalog !== FLOW_CATALOG);
   const steps = (await Promise.all(general.map((source) => updateStep(root, source.catalog, source.ref)))).flatMap((step) => step ?? []);
@@ -230,7 +229,7 @@ export async function skillsStatus(root: string, withFlow: boolean): Promise<Pie
   const fresh = (candidates ?? []).filter((candidate) => locked[candidate.name] === undefined);
   if (fresh.length > 0) {
     const skills: SkillPick = { candidates: fresh, picked: [], replace: [] };
-    steps.push({ piece: NAME, checked: false, downloads: [skillsManagerSpec(root)], label: `Agregar skills nuevas (${fresh.length}): ${fresh.map((candidate) => candidate.name).join(", ")}`, skills, run: (context) => install(context, skills) });
+    steps.push({ piece: NAME, checked: false, downloads: [skillsManagerSpec(root)], text: { kind: "skills-add", names: fresh.map((candidate) => candidate.name) }, skills, run: (context) => install(context, skills) });
   }
   const count = manifestCatalogs(root).reduce((total, source) => total + catalogSkills(root, source.catalog).length, 0);
   const behind = steps.filter((step) => step.checked).length;

@@ -35,7 +35,7 @@ test("an exact version below the minimum is raised to it", () => {
 
   assert.equal(r.status, 0, r.err);
   assert.match(r.out, /skills-manager +1\.1\.0, bajo 1\.2\.0/);
-  assert.match(r.out, /Subir skills-manager 1\.1\.0 → 1\.2\.0/);
+  assert.match(r.out, /✓ skills-manager subido de 1\.1\.0 a 1\.2\.0/);
   assert.equal(repo.read("package.json").devDependencies[SM], "1.2.0");
 });
 

@@ -213,7 +213,7 @@ async function missingLabels(root: string, version: string): Promise<string[] | 
  * @returns The step.
  */
 function labelsStep(version: string, missing: string[]): Step {
-  return { piece: NAME, checked: true, downloads: [`${FLOW_PACKAGE}@${version}`], label: `Crear en GitHub los labels que faltan: ${missing.join(", ")}`, run: async (context) => {
+  return { piece: NAME, checked: true, downloads: [`${FLOW_PACKAGE}@${version}`], text: { kind: "flow-labels", missing }, run: async (context) => {
     if (flowVersion(context.root) !== version) {
       context.note(`no se crearon: el repo no tiene issue-flow ${version}`);
       return true;
@@ -249,7 +249,7 @@ function restStep(root: string, version: string, minimum: string): Step | null {
   const below = (rest: string | null): rest is string => rest !== null && isRelease(rest) && compareVersions(rest, minimum) < 0;
   const current = dependencyVersion(readJson(root, "package.json"), GITHUB_REST);
   if (!below(current)) return null;
-  return { piece: NAME, checked: true, downloads: [], label: `Subir github-rest ${current} → ${minimum}, el mínimo de issue-flow ${version}`, run: async (context) => {
+  return { piece: NAME, checked: true, downloads: [], text: { kind: "github-rest-bump", from: current, to: minimum, flow: version }, run: async (context) => {
     if (flowVersion(context.root) !== version) context.note(`no se subió: el repo no tiene issue-flow ${version}`);
     else if (!below(dependencyVersion(readJson(context.root, "package.json"), GITHUB_REST))) context.note("package.json ya tenía una versión que sirve");
     else {
@@ -271,16 +271,16 @@ function restStep(root: string, version: string, minimum: string): Step | null {
 function stepFor(installed: string | null, latest: string | null, root: string, repair: boolean): Step | null {
   if (installed === null && latest !== null) {
     const run = usesApply(latest) ? async (context: Context) => (await applyFlow(context, latest)) && (await moveSkills(context, latest)) : (context: Context) => runFlow(context, latest, ["init", "--yes"]);
-    return { piece: NAME, checked: true, downloads: [`${FLOW_PACKAGE}@${latest}`], label: `Instalar issue-flow ${latest}: config del flujo, hooks y scripts`, run };
+    return { piece: NAME, checked: true, downloads: [`${FLOW_PACKAGE}@${latest}`], text: { kind: "flow-install", version: latest }, run };
   }
   if (installed !== null && latest !== null && compareVersions(latest, installed) > 0) {
     const update = (context: Context) => (usesApply(latest) ? applyFlow(context, latest) : runFlow(context, latest, ["upgrade"]));
-    return { piece: NAME, checked: true, downloads: [`${FLOW_PACKAGE}@${latest}`], label: `Actualizar issue-flow ${installed} → ${latest}, con sus hooks y sus skills`, run: async (context) => (await update(context)) && (await moveSkills(context, latest)) };
+    return { piece: NAME, checked: true, downloads: [`${FLOW_PACKAGE}@${latest}`], text: { kind: "flow-update", from: installed, to: latest }, run: async (context) => (await update(context)) && (await moveSkills(context, latest)) };
   }
   if (installed !== null && repair)
-    return { piece: NAME, checked: true, downloads: [`${FLOW_PACKAGE}@${installed}`], label: `Reparar issue-flow ${installed}: hooks y $schema`, run: async (context) => (await applyFlow(context, installed)) && (skillsOff(context.root, installed).length === 0 || (await moveSkills(context, installed))) };
+    return { piece: NAME, checked: true, downloads: [`${FLOW_PACKAGE}@${installed}`], text: { kind: "flow-repair", version: installed }, run: async (context) => (await applyFlow(context, installed)) && (skillsOff(context.root, installed).length === 0 || (await moveSkills(context, installed))) };
   if (installed !== null && skillsOff(root, installed).length > 0)
-    return { piece: NAME, checked: true, downloads: [], label: `Poner las skills del flujo en v${installed}, la versión de issue-flow`, run: (context) => moveSkills(context, installed) };
+    return { piece: NAME, checked: true, downloads: [], text: { kind: "flow-skills", version: installed }, run: (context) => moveSkills(context, installed) };
   return null;
 }
 

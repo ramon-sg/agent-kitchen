@@ -41,7 +41,7 @@ function stepFor(config: Record<string, unknown> | null, latest: string | null):
       piece: NAME,
       checked: true,
       downloads: [spec],
-      label: `Instalar claude-cloud ${latest ?? "1.x"}: prepara las sesiones en la nube de Claude`,
+      text: { kind: "cloud-install", version: latest },
       run: async (context) => {
         const run = await runNpx(context.root, [spec, "init"]);
         if (run.ok) return true;
@@ -55,7 +55,7 @@ function stepFor(config: Record<string, unknown> | null, latest: string | null):
     piece: NAME,
     checked: true,
     downloads: [],
-    label: `Actualizar claude-cloud ${version ?? "?"} → ${latest} (la versión que fija ${CONFIG})`,
+    text: { kind: "cloud-update", from: version, to: latest, config: CONFIG },
     run: async (context) => {
       const current = readJson(context.root, CONFIG) ?? {};
       const schema = typeof current.$schema === "string" ? current.$schema.replace(/@ramon-sg\/claude-cloud@[^/]+\//, `${PACKAGE}@${latest}/`) : undefined;

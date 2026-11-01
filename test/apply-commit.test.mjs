@@ -109,6 +109,7 @@ test("--commit --yes installs, commits on a new branch, pushes it, opens the PR 
 
   assert.equal(r.status, 0, r.err);
   assert.deepEqual(repo.npmCalls().filter((args) => args[0] === "install"), [["install"]]);
+  assert.match(r.out, /^Instalando las dependencias con npm…\n✓ Dependencias instaladas con npm \(\d+,\d s\)$/m);
   assert.equal(repo.git("branch", "--show-current"), "main");
   assert.equal(repo.git("rev-parse", "HEAD"), before);
   assert.deepEqual(dirty(repo), []);
@@ -149,6 +150,7 @@ test("if the install fails, nothing is committed and the changes stay", () => {
   const r = repo.cli(["--yes", "--commit", ...ONLY_FLOW], { env: { FAKE_FAIL: "install" } });
 
   assert.equal(r.status, 1);
+  assert.match(r.out, /^✗ Falló: Instalar las dependencias con npm \(\d+,\d s\)$/m);
   assert.equal(repo.git("rev-list", "--count", "HEAD"), "1");
   assert.equal(repo.git("branch", "--list", "chore/*"), "");
   assert.ok(dirty(repo).some((line) => line.includes("package.json")));

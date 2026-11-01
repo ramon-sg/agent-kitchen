@@ -10,6 +10,7 @@
 import { type Check, type Context, type PieceStatus, SKILLS_MANAGER, SKILLS_MANIFEST } from "../piece.js";
 import { dependencyVersion, installedVersion, readJson, setDependency, writeJson } from "../repo.js";
 import { compareVersions, isRelease } from "../tools.js";
+import type { StepText } from "../texts/step-text.js";
 
 /** The piece's name, as `--skip` takes it. */
 export const NAME = "skills-manager";
@@ -72,7 +73,7 @@ export function skillsManagerStatus(root: string, withSkills: boolean, flowComin
       piece: NAME,
       checked: true,
       downloads: [`${SKILLS_MANAGER}@${MIN_VERSION}`],
-      label: `Crear package.json con skills-manager ${MIN_VERSION}`,
+      text: { kind: "skills-manager-create", version: MIN_VERSION } as const,
       run: async (context: Context) => {
         if (readJson(context.root, "package.json") === null) writeJson(context.root, "package.json", { private: true, devDependencies: { [SKILLS_MANAGER]: MIN_VERSION } });
         else if (pinned(context.root).kind === "missing") setDependency(context.root, SKILLS_MANAGER, MIN_VERSION);
@@ -88,13 +89,13 @@ export function skillsManagerStatus(root: string, withSkills: boolean, flowComin
     return { name: NAME, summary, installed: true, state: `package.json tiene ${now.spec}, no una versión exacta; no se toca${old}`, steps: [] };
   }
   if (now.kind === "exact" && !below(now.version)) return { name: NAME, summary, installed: true, state: `${now.version}, al día`, steps: [] };
-  const label = now.kind === "missing" ? `Agregar skills-manager ${MIN_VERSION} a package.json` : `Subir skills-manager ${now.version} → ${MIN_VERSION}, el mínimo de agent-kitchen`;
+  const text: StepText = now.kind === "missing" ? { kind: "skills-manager-add", version: MIN_VERSION } : { kind: "skills-manager-bump", from: now.version, to: MIN_VERSION };
   const state = now.kind === "missing" ? "no está en package.json" : `${now.version}, bajo ${MIN_VERSION}`;
   const step = {
     piece: NAME,
     checked: true,
     downloads: [`${SKILLS_MANAGER}@${MIN_VERSION}`],
-    label,
+    text,
     run: async (context: Context) => {
       const current = pinned(context.root);
       if (current.kind === "missing" || (current.kind === "exact" && below(current.version))) {

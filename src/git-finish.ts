@@ -10,6 +10,7 @@ import { spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
+import { COMMIT_TITLE as TITLE, prBody } from "./commit-texts.js";
 import { KitError } from "./output.js";
 import { FLOW_CONFIG } from "./piece.js";
 import { dependencyVersion, readJson } from "./repo.js";
@@ -17,9 +18,6 @@ import { captureNpxWithout, isRelease, npmLatest } from "./tools.js";
 
 /** What to do with the changes: leave them, commit on the base, on a branch, or a branch with a PR. */
 export type FinishChoice = "leave" | "base" | "branch" | "pr";
-
-/** The subject of the commit and the title of the PR. */
-const TITLE = "chore: agent-kitchen apply";
 
 /** github-rest on npm, which opens the PR (REST, never gh's GraphQL). */
 const GITHUB_REST = "@ramon-sg/github-rest";
@@ -161,7 +159,7 @@ async function openPr(root: string, branch: string, base: string, steps: string[
   if (version === null) return { error: `no sé qué versión de ${GITHUB_REST} usar.` };
   const dir = mkdtempSync(join(tmpdir(), "agent-kitchen-pr-"));
   const bodyFile = join(dir, "body.md");
-  writeFileSync(bodyFile, `Cambios de \`agent-kitchen apply\`:\n\n${steps.map((step) => `- ${step}`).join("\n")}\n`);
+  writeFileSync(bodyFile, prBody(steps));
   try {
     const result = await captureNpxWithout(root, [`${GITHUB_REST}@${version}`, "pr", "create", "--head", branch, "--base", base, "--title", TITLE, "--body-file", bodyFile], ["GH_REPO"]);
     const url = result.out.trim().split("\n").at(-1) ?? "";

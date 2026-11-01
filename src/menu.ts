@@ -8,6 +8,7 @@ import { styleText } from "node:util";
 import { confirm, groupMultiselect, isCancel, MULTISELECT_INSTRUCTIONS, multiselect, select, SELECT_INSTRUCTIONS } from "@clack/prompts";
 import type { FinishChoice } from "./git-finish.js";
 import type { Candidate, Step } from "./piece.js";
+import { stepLabel } from "./texts/index.js";
 
 /** What the person wants after seeing the table. */
 export type Path = "all" | "pick" | "leave";
@@ -32,7 +33,7 @@ function spanishKeys(): void {
  */
 export function menuOptions(steps: Step[]): { options: { value: number; label: string }[]; initialValues: number[] } {
   return {
-    options: steps.map((step, index) => ({ value: index, label: step.label })),
+    options: steps.map((step, index) => ({ value: index, label: stepLabel(step) })),
     initialValues: steps.flatMap((step, index) => (step.checked ? [index] : [])),
   };
 }

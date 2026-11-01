@@ -15,15 +15,19 @@ test("versions compare by number, not as text", () => {
 
 test("the menu starts with the suggested steps ticked, in the steps' order", () => {
   const steps = [
-    { piece: "issue-flow", label: "a", checked: true, run: () => true },
-    { piece: "skills", label: "b", checked: false, run: () => true },
-    { piece: "claude-cloud", label: "c", checked: true, run: () => true },
+    { piece: "issue-flow", text: { kind: "flow-install", version: "0.3.0" }, checked: true, run: () => true },
+    { piece: "skills", text: { kind: "skills-add", names: ["planning"] }, checked: false, fresh: true, run: () => true },
+    { piece: "claude-cloud", text: { kind: "cloud-update", from: null, to: "1.1.0", config: ".claude/cloud.json" }, checked: true, run: () => true },
   ];
 
   const { options, initialValues } = menuOptions(steps);
 
   assert.deepEqual(initialValues, [0, 2]);
-  assert.deepEqual(options.map((option) => option.label), ["a", "b", "c"]);
+  assert.deepEqual(options.map((option) => option.label), [
+    "Instalar issue-flow 0.3.0: config del flujo, hooks y scripts",
+    "Agregar skills nuevas (1): planning (nueva)",
+    "Actualizar claude-cloud ? → 1.1.0 (la versión que fija .claude/cloud.json)",
+  ]);
 });
 
 test("keeping an own skill also drops the skills that require it, all the way down", () => {
@@ -82,7 +86,9 @@ test("the commit of --commit names the saved decisions next to the steps that ra
   const saved = "Guardar qué piezas usa el repo en .agents/kitchen.json";
 
   assert.deepEqual(commitLabels([], true), [saved]);
-  assert.deepEqual(commitLabels(["Instalar issue-flow 0.2.0"], true), ["Instalar issue-flow 0.2.0", saved]);
-  assert.deepEqual(commitLabels(["Instalar issue-flow 0.2.0"], false), ["Instalar issue-flow 0.2.0"]);
+  const install = { text: { kind: "flow-install", version: "0.2.0" } };
+  const line = "Instalar issue-flow 0.2.0: config del flujo, hooks y scripts";
+  assert.deepEqual(commitLabels([install], true), [line, saved]);
+  assert.deepEqual(commitLabels([install], false), [line]);
   assert.deepEqual(commitLabels([], false), []);
 });

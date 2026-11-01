@@ -23,7 +23,6 @@
  * `--pieces` (terminal only, not with `--yes` or `--dry-run`) first asks which pieces the repo
  * uses, writes all of them to the file, and then goes on as usual.
  */
-import { spinner } from "@clack/prompts";
 import { DECIDABLE, decide, DECISIONS, off, readDecisions, type Saved, undecided, writeDecisions } from "../decisions.js";
 import { baseBranch, branchName, changedPaths, checkReady, finish } from "../git-finish.js";
 import { askFinish, askPath, askPieces, askReplace, askSkills, askSteps } from "../menu.js";
@@ -37,6 +36,9 @@ import { agentsMdStatus, NAME as AGENTS_MD } from "../pieces/agents-md.js";
 import { NAME as SKILLS_MANAGER, skillsManagerStatus } from "../pieces/skills-manager.js";
 import { mainCheckout, packageManager } from "../repo.js";
 import { download, failedOutput, runInstall, setVerbose } from "../tools.js";
+import { commitLine, DECISIONS_LINE } from "../commit-texts.js";
+import { type Progress, progressFor } from "../progress.js";
+import { stepLabel, ui } from "../texts/index.js";
 
 /** Options of the command. */
 export interface SyncOptions {
@@ -52,12 +54,6 @@ export interface SyncOptions {
 
 /** Every piece, in the order its steps run. */
 const PIECES = [SKILLS_MANAGER, FLOW, CLOUD, GUARD, SKILLS, AGENTS_MD];
-
-/** How a step's progress is shown: a spinner in a terminal, plain lines otherwise. */
-interface Progress {
-  start: (text: string) => void;
-  stop: (text: string, ok: boolean) => void;
-}
 
 /**
  * The names `--skip` takes.
@@ -136,8 +132,7 @@ function saveDecisions(root: string, saved: Saved | null, statuses: PieceStatus[
  * @example noStepsMessage("none", true) // "No elegiste pasos; solo guardé qué piezas usa el repo.\n"
  */
 export function noStepsMessage(why: "leave" | "none", wrote: boolean): string {
-  if (why === "leave") return wrote ? "No corrí ningún paso; solo guardé qué piezas usa el repo.\n" : "No se cambió nada.\n";
-  return wrote ? "No elegiste pasos; solo guardé qué piezas usa el repo.\n" : "No elegiste nada; no se cambió nada.\n";
+  return `${ui.noSteps(why, wrote)}\n`;
 }
 
 /**
@@ -146,22 +141,20 @@ export function noStepsMessage(why: "leave" | "none", wrote: boolean): string {
  * @returns The line.
  */
 function savedMessage(commits: boolean): string {
-  return `Guardé qué piezas usa el repo en ${DECISIONS}${commits ? "" : "; commitéalo"}.\n`;
+  return `${ui.saved(DECISIONS, commits)}\n`;
 }
-
-/** The line the commit of `--commit` adds for the decisions file. */
-const DECISIONS_STEP = `Guardar qué piezas usa el repo en ${DECISIONS}`;
 
 /**
  * What the commit of `--commit` lists: the steps that worked, and the decisions file if this
- * run wrote it.
- * @param done - The labels of the steps that worked.
+ * run wrote it, in the commit's texts (not the interface's).
+ * @param done - The steps that worked.
  * @param wrote - Whether the decisions file was written in this run.
- * @returns The labels.
+ * @returns The lines.
  * @example commitLabels([], true) // ["Guardar qué piezas usa el repo en .agents/kitchen.json"]
  */
-export function commitLabels(done: string[], wrote: boolean): string[] {
-  return wrote ? [...done, DECISIONS_STEP] : done;
+export function commitLabels(done: Pick<Step, "text">[], wrote: boolean): string[] {
+  const lines = done.map((step) => commitLine(step.text));
+  return wrote ? [...lines, DECISIONS_LINE] : lines;
 }
 
 /**
@@ -173,7 +166,7 @@ export function commitLabels(done: string[], wrote: boolean): string[] {
  * @returns False if the person cancelled.
  */
 async function choosePieces(root: string, saved: Saved | null, commits: boolean, out: Output): Promise<boolean> {
-  out.stdout("Revisando el repo y las últimas versiones…\n");
+  out.stdout(`${ui.checking}\n`);
   // No skip here: an installed, undecided piece passed in --skip still starts ticked.
   const statuses = await statusesOf(root, []);
   const ticked = DECIDABLE.filter((name) => saved?.pieces[name] === true || (saved?.pieces[name] === undefined && statuses.some((status) => status.name === name && status.installed)));
@@ -195,7 +188,7 @@ function keepOwnSkills(root: string, step: Step, out: Output): void {
   const own = ownInPick(root, step.skills);
   if (own.length === 0) return;
   Object.assign(step.skills, keepOwn(step.skills, own));
-  out.stdout(`Se dejan fuera las skills que el repo ya tiene como propias: ${own.join(", ")}. Para reemplazarlas, corre agent-kitchen apply en una terminal.\n`);
+  out.stdout(`${ui.ownSkillsKept(own)}\n`);
 }
 
 /**
@@ -234,13 +227,12 @@ async function askAboutSkills(root: string, step: Step, chooseSkills: boolean): 
 async function chooseSteps(root: string, steps: Step[], options: SyncOptions, out: Output): Promise<Step[] | "leave" | null> {
   const suggested = steps.filter((step) => step.checked);
   if (options.yes) {
-    if (suggested.length === 0) out.stdout(`Todo al día. Opcional, para elegir en una terminal: ${steps.map((step) => step.label).join("; ")}.\n`);
+    if (suggested.length === 0) out.stdout(`${ui.onlyOptional(steps.map(stepLabel))}\n`);
     for (const step of suggested) keepOwnSkills(root, step, out);
     return suggested;
   }
   if (options.dryRun || !out.interactive) {
-    const hint = options.dryRun ? "" : " (para hacerlos, corre agent-kitchen apply en una terminal, o con --yes)";
-    out.stdout(`Pasos sugeridos${hint}:\n${steps.map((step) => `  [${step.checked ? "x" : " "}] ${step.label}\n`).join("")}`);
+    out.stdout(`${ui.suggested(options.dryRun)}\n${steps.map((step) => `  [${step.checked ? "x" : " "}] ${stepLabel(step)}\n`).join("")}`);
     return null;
   }
   for (const step of suggested) for (const spec of step.downloads) void download(root, spec);
@@ -252,23 +244,6 @@ async function chooseSteps(root: string, steps: Step[], options: SyncOptions, ou
     if (!(await askAboutSkills(root, step, path === "pick"))) return null;
   }
   return chosen;
-}
-
-/**
- * How progress is shown: a spinner in a terminal (unless the tools print with
- * `--verbose`), plain lines otherwise. Only for the steps, after every question: a spinner
- * shown before a question leaves the second question deaf to the keyboard (@clack/prompts
- * 1.8.1).
- * @param out - Where to write.
- * @param verbose - Whether the tools print on the terminal.
- * @returns The progress.
- */
-function progressFor(out: Output, verbose: boolean): Progress {
-  if (out.interactive && !verbose) {
-    const spin = spinner();
-    return { start: (text) => spin.start(text), stop: (text, ok) => (ok ? spin.stop(text) : spin.error(text)) };
-  }
-  return { start: (text) => out.stdout(`→ ${text}\n`), stop: (text, ok) => out.stdout(`${ok ? "✓" : "✗"} ${text}\n`) };
 }
 
 /**
@@ -288,17 +263,20 @@ async function runStep(root: string, step: Step, progress: Progress, out: Output
     note: (text) => notes.push(text),
     fail: (text, output) => failures.push(`  ${text}\n${output === undefined ? "" : failedOutput(output)}`),
   };
-  progress.start(step.label);
-  await Promise.all(step.downloads.map((spec) => download(root, spec)));
+  progress.start(step.text);
   let ok: boolean;
   try {
+    await Promise.all(step.downloads.map((spec) => download(root, spec)));
     ok = await step.run(context);
   } catch (error) {
-    if (!(error instanceof KitError)) throw error;
+    if (!(error instanceof KitError)) {
+      progress.stop(step.text, false);
+      throw error;
+    }
     failures.push(`  ${error.message}\n`);
     ok = false;
   }
-  progress.stop(step.label, ok);
+  progress.stop(step.text, ok);
   for (const note of notes) out.stdout(`  · ${note}\n`);
   for (const failure of failures) out.stderr(failure);
   return ok;
@@ -336,30 +314,31 @@ export async function sync(options: SyncOptions, out: Output): Promise<number> {
   const skip = [...options.skip, ...off(saved)];
   const asks = out.interactive && !options.yes && !options.dryRun;
   const saves = asks && options.skip.length === 0;
-  if (out.interactive) out.stdout("Revisando el repo y las últimas versiones…\n");
+  if (out.interactive) out.stdout(`${ui.checking}\n`);
   let statuses = await statusesOf(root, skip);
   if (saved !== null && !asks && !options.dryRun) {
     const left = undecided(saved).filter((name) => statuses.some((status) => status.name === name && !status.installed));
     if (left.length > 0) {
       skip.push(...left);
       statuses = await statusesOf(root, skip);
-      out.stdout(`Pieza nueva sin decisión: ${left.join(", ")}. Corre agent-kitchen apply en una terminal para elegir.\n`);
+      out.stdout(`${ui.undecided(left)}\n`);
     }
   }
   if (saved !== null) {
     const fresh = undecided(saved);
     for (const status of statuses.filter((each) => fresh.includes(each.name))) {
-      status.state += " (nueva)";
-      for (const step of status.steps) step.label += " (nueva)";
+      status.state += ui.fresh;
+      for (const step of status.steps) step.fresh = true;
     }
   }
   printStatus(statuses, off(saved).filter((name) => !options.skip.includes(name)), out);
   const steps = statuses.flatMap((status) => status.steps);
   // With --commit, a run that only wrote the decisions file still ends with the question.
-  const endWithoutSteps = async (): Promise<number> => (base !== null && wrote ? commitChanges(root, base, commitLabels([], true), [], options, out) : 0);
+  const progress = progressFor(out, options.verbose, base !== null);
+  const endWithoutSteps = async (): Promise<number> => (base !== null && wrote ? commitChanges(root, base, commitLabels([], true), [], progress, options, out) : 0);
   if (steps.length === 0) {
     if (saves) wrote = saveDecisions(root, saved, statuses, [], base !== null, out) || wrote;
-    out.stdout("Todo al día: no hay nada que instalar ni actualizar.\n");
+    out.stdout(`${ui.upToDate}\n`);
     return endWithoutSteps();
   }
   const chosen = await chooseSteps(root, steps, options, out);
@@ -380,14 +359,13 @@ export async function sync(options: SyncOptions, out: Output): Promise<number> {
     if (!options.yes) out.stdout(noStepsMessage("none", wrote));
     return endWithoutSteps();
   }
-  const progress = progressFor(out, options.verbose || base !== null);
-  const failed: string[] = [];
+  const failedSteps: Step[] = [];
   for (const step of chosen) {
-    if (!(await runStep(root, step, progress, out))) failed.push(step.label);
+    if (!(await runStep(root, step, progress, out))) failedSteps.push(step);
   }
-  if (base !== null) return commitChanges(root, base, commitLabels(chosen.filter((step) => !failed.includes(step.label)).map((step) => step.label), wrote), failed, options, out);
-  const next = `Falta: corre '${packageManager(root)} install', revisa el diff y haz commit.`;
-  out.stdout(`\n${failed.length === 0 ? "Listo." : `Terminó, pero fallaron: ${failed.join("; ")}.`} ${next}\n`);
+  const failed = failedSteps.map(stepLabel);
+  if (base !== null) return commitChanges(root, base, commitLabels(chosen.filter((step) => !failedSteps.includes(step)), wrote), failed, progress, options, out);
+  out.stdout(`\n${ui.summary(failed)} ${ui.next(packageManager(root))}\n`);
   return failed.length === 0 ? 0 : 1;
 }
 
@@ -396,14 +374,15 @@ export async function sync(options: SyncOptions, out: Output): Promise<number> {
  * the branch with a PR under --yes) and what git did.
  * @param root - The repo.
  * @param base - The base branch.
- * @param done - What the commit lists: the labels of the steps that worked, and the decisions file if written.
- * @param failed - The labels of the steps that failed.
+ * @param done - What the commit lists: the steps that worked, and the decisions file if written.
+ * @param failed - The steps that failed, as the interface names them.
+ * @param progress - How progress is shown, for the install.
  * @param options - The options.
  * @param out - Where to write and ask.
  * @returns 0, or 1 if a step, the install or git failed.
  */
-async function commitChanges(root: string, base: string, done: string[], failed: string[], options: SyncOptions, out: Output): Promise<number> {
-  const summary = failed.length === 0 ? "Listo." : `Terminó, pero fallaron: ${failed.join("; ")}.`;
+async function commitChanges(root: string, base: string, done: string[], failed: string[], progress: Progress, options: SyncOptions, out: Output): Promise<number> {
+  const summary = ui.summary(failed);
   const changed = changedPaths(root);
   if (changed.length === 0) {
     out.stdout(`\n${summary} No cambió ningún archivo: no hay nada que commitear.\n`);
@@ -412,10 +391,10 @@ async function commitChanges(root: string, base: string, done: string[], failed:
   const manager = packageManager(root);
   const packageChanged = changed.includes("package.json");
   if (packageChanged) {
-    const label = `Instalar las dependencias con ${manager}`;
-    out.stdout(`→ ${label}\n`);
+    const text = { kind: "install-deps", manager } as const;
+    progress.start(text);
     const installed = await runInstall(root, manager);
-    out.stdout(`${installed.ok ? "✓" : "✗"} ${label}\n`);
+    progress.stop(text, installed.ok);
     if (!installed.ok) {
       out.stderr(failedOutput(installed.output));
       out.stdout(`\n${summary} No commiteé: el install falló y los cambios quedan sin commit.\n`);

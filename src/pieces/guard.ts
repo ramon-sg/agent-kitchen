@@ -153,11 +153,11 @@ function installedVersion(root: string): string | null | undefined {
  */
 function stepFor(root: string, installed: string | null | undefined, latest: string | null, flowComing: boolean): Step | null {
   if (installed === undefined)
-    return { piece: NAME, checked: true, downloads: [guardSpec(latest)], label: `Instalar claude-repo-guard ${latest ?? "(main)"}: modo auto con sandbox, y un documento de qué protege`, run: (context) => install(context, latest) };
+    return { piece: NAME, checked: true, downloads: [guardSpec(latest)], text: { kind: "guard-install", version: latest }, run: (context) => install(context, latest) };
   if (latest !== null && (installed === null || compareVersions(latest, installed) > 0))
-    return { piece: NAME, checked: true, downloads: [guardSpec(latest)], label: `Actualizar claude-repo-guard ${installed ?? "?"} → ${latest}`, run: (context) => install(context, latest) };
+    return { piece: NAME, checked: true, downloads: [guardSpec(latest)], text: { kind: "guard-update", from: installed, to: latest }, run: (context) => install(context, latest) };
   if (flowComing || guardOptions(root, process.platform).changes.length > 0)
-    return { piece: NAME, checked: true, downloads: [guardSpec(installed)], label: "Ajustar claude-repo-guard a lo que necesita el flujo de issues", run: (context) => addOptions(context, installed) };
+    return { piece: NAME, checked: true, downloads: [guardSpec(installed)], text: { kind: "guard-adjust" }, run: (context) => addOptions(context, installed) };
   return null;
 }
 

@@ -41,7 +41,9 @@ test("--yes on an empty repo installs everything in order, each piece with its o
   const guard = repo.read(".claude/repo-guard.config.json");
   assert.match(guard.environment[0], /draft PR/);
   assert.equal(guard.weakerNetworkIsolation, process.platform === "darwin" ? true : undefined);
-  assert.match(r.out, /✓ Instalar issue-flow 0\.2\.0/);
+  assert.match(r.out, /^Instalando issue-flow 0\.2\.0…$/m);
+  assert.match(r.out, /✓ issue-flow 0\.2\.0 instalado: config del flujo, hooks y scripts \(\d+,\d s\)$/m);
+  assert.doesNotMatch(r.out, /^→ /m);
   assert.match(r.out, /Listo\. Falta: corre 'npm install'/);
 });
 
@@ -111,7 +113,7 @@ test("--yes updates each piece behind: the flow and its skills, claude-cloud's p
   assert.equal(repo.read(".claude/cloud.json").version, "1.1.0");
   assert.deepEqual(repo.read(".agents/skills.json").sources.map((source) => source.ref), ["v0.2.0", undefined]);
   assert.match(r.out, /issue-flow +0\.1\.0, hay 0\.2\.0/);
-  assert.match(r.out, /Actualizar skills de ramon-sg\/agent-skills v0\.1\.0 → v0\.2\.0: code-audit, test-audit/);
+  assert.match(r.out, /✓ Skills de ramon-sg\/agent-skills actualizadas a v0\.2\.0: code-audit, test-audit/);
 });
 
 test("when only the flow's skills are off the CLI's tag, it moves them alone", () => {
@@ -123,7 +125,7 @@ test("when only the flow's skills are off the CLI's tag, it moves them alone", (
   const r = repo.cli(["--yes"]);
 
   assert.equal(r.status, 0, r.err);
-  assert.match(r.out, /Poner las skills del flujo en v0\.2\.0/);
+  assert.match(r.out, /✓ Skills del flujo en v0\.2\.0/);
   assert.deepEqual(repo.calls().slice(-2), [["@ramon-sg/skills-manager@1.2.0", "update", "close-pr"], ["@ramon-sg/skills-manager@1.2.0", "update", "pr-review-comments"]]);
 });
 
@@ -147,7 +149,7 @@ test("a guard at the latest without the flow's options gets them, at its own ver
   const r = repo.cli(["--yes"]);
 
   assert.equal(r.status, 0, r.err);
-  assert.match(r.out, /Ajustar claude-repo-guard a lo que necesita el flujo de issues/);
+  assert.match(r.out, /✓ claude-repo-guard ajustado a lo que necesita el flujo de issues/);
   assert.match(r.out, /· rama de integración staging/);
   const guard = repo.read(".claude/repo-guard.config.json");
   assert.deepEqual(guard.allowedDomains, ["example.com"]);
@@ -164,7 +166,7 @@ test("a step that fails does not stop the rest, says how to retry, and exits 1",
   assert.equal(r.status, 1);
   assert.match(r.err, /claude-cloud init falló; corre 'npx @ramon-sg\/claude-cloud@1\.1\.0 init'/);
   assert.match(r.err, /fake: claude-cloud failed/);
-  assert.match(r.out, /✗ Instalar claude-cloud/);
+  assert.match(r.out, /✗ Falló: Instalar claude-cloud/);
   assert.deepEqual(repo.calls().map((args) => args[0]), ["@ramon-sg/issue-flow@0.2.0", "@ramon-sg/claude-cloud@1.1.0", "github:ramon-sg/claude-repo-guard#v0.2.0", "@ramon-sg/skills-manager@1.2.0"]);
   assert.match(r.out, /fallaron: Instalar claude-cloud/);
 });
@@ -332,7 +334,7 @@ test("the guard updates with apply from 0.5.0 on, as the issue's repro: 0.5.0 �
   const r = repo.cli(["--yes", "--skip", "issue-flow,claude-cloud,skills"]);
 
   assert.equal(r.status, 0, r.err);
-  assert.match(r.out, /Actualizar claude-repo-guard 0\.5\.0 → 0\.5\.1/);
+  assert.match(r.out, /✓ claude-repo-guard actualizado de 0\.5\.0 a 0\.5\.1/);
   assert.ok(repo.calls().some((args) => args.join(" ") === "github:ramon-sg/claude-repo-guard#v0.5.1 apply --yes"));
   assert.equal(repo.read(".claude/repo-guard.manifest.json").version, "0.5.1");
 });
