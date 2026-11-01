@@ -1,4 +1,5 @@
-// Helpers of the tests: a repo with a main checkout, the fake npx and npm of fake-tools.mjs
+// Helpers of the tests: a repo with a main checkout (and, if asked, a local origin), the fake
+// npx, npm and pnpm of fake-tools.mjs
 // first in PATH, local GitHub repos with release tags (git reaches them through an
 // insteadOf rewrite of https://github.com/, so `git ls-remote` is the real one), and the
 // compiled CLI.
@@ -13,6 +14,8 @@ const CLI = join(HERE, "..", "dist", "cli.js");
 const GIT_ENV = { GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@t", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@t" };
 
 // The latest of everything on npm, unless a test says otherwise.
+export { GIT_ENV };
+
 export const NPM = { "@ramon-sg/issue-flow": "0.2.0", "@ramon-sg/claude-cloud": "1.1.0" };
 
 // The rule agent-kitchen writes into AGENTS.md (src/pieces/agents-md.ts), copied as a literal on
@@ -36,7 +39,9 @@ const logged = (log, program) => (existsSync(log) ? readFileSync(log, "utf8").sp
 const npxCalls = (log) => logged(log, "npx").map((args) => args.slice(1));
 
 // A repo for the tests. `tags` gives the release tags of each GitHub repo.
-export function makeRepo({ tags = { "ramon-sg/claude-repo-guard": ["0.1.0", "0.2.0"], "ramon-sg/agent-skills": ["0.1.0", "0.2.0"] } } = {}) {
+// With `origin`, the repo also gets an `origin` remote (a local bare repo) with main pushed
+// and `origin/HEAD` set, as a clone has.
+export function makeRepo({ tags = { "ramon-sg/claude-repo-guard": ["0.1.0", "0.2.0"], "ramon-sg/agent-skills": ["0.1.0", "0.2.0"] }, origin = false } = {}) {
   const tmp = realpathSync(mkdtempSync(join(tmpdir(), "agent-kitchen-")));
   const main = join(tmp, "main");
   const bin = join(tmp, "bin");
@@ -51,7 +56,14 @@ export function makeRepo({ tags = { "ramon-sg/claude-repo-guard": ["0.1.0", "0.2
     git(main, "push", "-q", bare, "HEAD:main");
     for (const version of versions) git(main, "push", "-q", bare, `HEAD:refs/tags/v${version}`);
   }
-  for (const [name, as] of [["npx", ""], ["npm", "FAKE_AS=npm "]]) {
+  if (origin) {
+    const bare = join(tmp, "origin.git");
+    git(tmp, "init", "-q", "--bare", "-b", "main", bare);
+    git(main, "remote", "add", "origin", bare);
+    git(main, "push", "-q", "origin", "main");
+    git(main, "remote", "set-head", "origin", "main");
+  }
+  for (const [name, as] of [["npx", ""], ["npm", "FAKE_AS=npm "], ["pnpm", "FAKE_AS=pnpm "]]) {
     writeFileSync(join(bin, name), `#!/bin/sh\n${as}exec node "${join(HERE, "fake-tools.mjs")}" "$@"\n`);
     chmodSync(join(bin, name), 0o755);
   }
@@ -65,6 +77,7 @@ export function makeRepo({ tags = { "ramon-sg/claude-repo-guard": ["0.1.0", "0.2
     GIT_CONFIG_COUNT: "1",
     GIT_CONFIG_KEY_0: `url.${join(tmp, "github")}/.insteadOf`,
     GIT_CONFIG_VALUE_0: "https://github.com/",
+    ...GIT_ENV,
     ...extra,
   });
   return {
@@ -84,6 +97,8 @@ export function makeRepo({ tags = { "ramon-sg/claude-repo-guard": ["0.1.0", "0.2
     allCalls: () => npxCalls(log),
     // Every npm call of the last run.
     npmCalls: () => logged(log, "npm"),
+    // Every call of the last run, with the program and its GH_REPO.
+    log: () => (existsSync(log) ? readFileSync(log, "utf8").split("\n").filter(Boolean).map((line) => JSON.parse(line)) : []),
     read: (path) => JSON.parse(readFileSync(join(main, path), "utf8")),
     exists: (path) => existsSync(join(main, path)),
     write: (path, value) => {
