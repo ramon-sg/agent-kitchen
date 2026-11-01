@@ -68,3 +68,11 @@ test("the pieces menu starts with the ticked pieces, in order", () => {
   assert.deepEqual(initialValues, ["issue-flow"]);
   assert.deepEqual(options.map((option) => option.label), ["issue-flow", "claude-repo-guard"]);
 });
+
+test("noStepsMessage no contradice un archivo de decisiones guardado en la corrida", async () => {
+  const { noStepsMessage } = await import("../dist/commands/sync.js");
+  assert.equal(noStepsMessage("none", false), "No elegiste nada; no se cambió nada.\n");
+  assert.equal(noStepsMessage("leave", false), "No se cambió nada.\n");
+  assert.equal(noStepsMessage("none", true), "No elegiste pasos; solo guardé qué piezas usa el repo.\n");
+  assert.equal(noStepsMessage("leave", true), "No corrí ningún paso; solo guardé qué piezas usa el repo.\n");
+});

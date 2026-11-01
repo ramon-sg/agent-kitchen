@@ -110,14 +110,28 @@ function printStatus(statuses: PieceStatus[], decidedOff: string[], out: Output)
  * @param statuses - What each piece found.
  * @param chosen - The steps the person picked.
  * @param out - Where to write.
+ * @returns True if the file was written.
  */
-function saveDecisions(root: string, saved: Saved | null, statuses: PieceStatus[], chosen: Step[], out: Output): void {
+function saveDecisions(root: string, saved: Saved | null, statuses: PieceStatus[], chosen: Step[], out: Output): boolean {
   const previous = saved?.pieces ?? {};
   const pieces = decide(statuses, chosen, previous);
   const same = Object.keys(pieces).length === Object.keys(previous).length && Object.entries(pieces).every(([name, value]) => previous[name] === value);
-  if (Object.keys(pieces).length === 0 || (saved !== null && same)) return;
+  if (Object.keys(pieces).length === 0 || (saved !== null && same)) return false;
   writeDecisions(root, pieces, saved?.raw ?? {});
   out.stdout(savedMessage());
+  return true;
+}
+
+/**
+ * The closing line when no step ran, which must not contradict a file written in this run.
+ * @param why - "leave" if the person left without changing anything, "none" if they picked no steps.
+ * @param wrote - Whether the decisions file was written in this run.
+ * @returns The line, with its newline.
+ * @example noStepsMessage("none", true) // "No elegiste pasos; solo guardé qué piezas usa el repo.\n"
+ */
+export function noStepsMessage(why: "leave" | "none", wrote: boolean): string {
+  if (why === "leave") return wrote ? "No corrí ningún paso; solo guardé qué piezas usa el repo.\n" : "No se cambió nada.\n";
+  return wrote ? "No elegiste pasos; solo guardé qué piezas usa el repo.\n" : "No elegiste nada; no se cambió nada.\n";
 }
 
 /**
@@ -132,13 +146,13 @@ function savedMessage(): string {
  * Asks which pieces the repo uses and writes the answer for every decidable piece.
  * @param root - The repo.
  * @param saved - What was read, or null if there is no file.
- * @param skip - The pieces left out of this run; they are still asked about.
  * @param out - Where to write.
  * @returns False if the person cancelled.
  */
-async function choosePieces(root: string, saved: Saved | null, skip: string[], out: Output): Promise<boolean> {
+async function choosePieces(root: string, saved: Saved | null, out: Output): Promise<boolean> {
   out.stdout("Revisando el repo y las últimas versiones…\n");
-  const statuses = await statusesOf(root, skip);
+  // No skip here: an installed, undecided piece passed in --skip still starts ticked.
+  const statuses = await statusesOf(root, []);
   const ticked = DECIDABLE.filter((name) => saved?.pieces[name] === true || (saved?.pieces[name] === undefined && statuses.some((status) => status.name === name && status.installed)));
   const picked = await askPieces(DECIDABLE, ticked);
   if (picked === null) return false;
@@ -284,13 +298,15 @@ export async function sync(options: SyncOptions, out: Output): Promise<number> {
   const root = mainCheckout(options.cwd, "agent-kitchen apply");
   setVerbose(options.verbose);
   let saved = readDecisions(root);
+  let wrote = false;
   for (const warning of saved?.warnings ?? []) warn(out, warning);
   if (options.pieces) {
-    if (!(await choosePieces(root, saved, options.skip, out))) {
+    if (!(await choosePieces(root, saved, out))) {
       out.stdout("No se cambió nada.\n");
       return 0;
     }
     saved = readDecisions(root);
+    wrote = true;
   }
   const skip = [...options.skip, ...off(saved)];
   const asks = out.interactive && !options.yes && !options.dryRun;
@@ -320,9 +336,9 @@ export async function sync(options: SyncOptions, out: Output): Promise<number> {
     return 0;
   }
   const chosen = await chooseSteps(root, steps, options, out);
-  if (saves && Array.isArray(chosen)) saveDecisions(root, saved, statuses, chosen, out);
+  if (saves && Array.isArray(chosen)) wrote = saveDecisions(root, saved, statuses, chosen, out) || wrote;
   if (chosen === "leave") {
-    out.stdout("No se cambió nada.\n");
+    out.stdout(noStepsMessage("leave", wrote));
     return 0;
   }
   if (chosen === null) {
@@ -330,7 +346,7 @@ export async function sync(options: SyncOptions, out: Output): Promise<number> {
     return options.dryRun || !out.interactive ? 0 : 1;
   }
   if (chosen.length === 0) {
-    if (!options.yes) out.stdout("No elegiste nada; no se cambió nada.\n");
+    if (!options.yes) out.stdout(noStepsMessage("none", wrote));
     return 0;
   }
   const progress = progressFor(out, options.verbose);
