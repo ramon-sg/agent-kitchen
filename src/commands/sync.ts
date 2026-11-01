@@ -12,8 +12,14 @@
  * tools' output only when one fails; one that fails does not stop the rest. With `--yes`
  * it does what is suggested without asking (and keeps the repo's own skills); without a
  * terminal it only shows the steps.
+ * What the repo decided of each piece, in `.agents/kitchen.json`, is respected: a piece set to
+ * false is left out as with `--skip`, and one with no decision is marked as new. Without
+ * asking (`--yes` or no terminal), a new piece that is not installed is left out for the run.
+ * In a terminal, once the person has answered, the pieces without a decision get one and the
+ * file is written; `--yes`, `--dry-run` and `--skip` never write it.
  */
 import { spinner } from "@clack/prompts";
+import { decide, DECISIONS, off, readDecisions, type Saved, undecided, writeDecisions } from "../decisions.js";
 import { askPath, askReplace, askSkills, askSteps } from "../menu.js";
 import { KitError, type Output, UsageError, warn } from "../output.js";
 import type { Context, PieceStatus, Step } from "../piece.js";
@@ -74,16 +80,39 @@ async function statusesOf(root: string, skip: string[]): Promise<PieceStatus[]> 
 }
 
 /**
- * Prints what the repo has of each piece.
+ * Prints what the repo has of each piece, in the pieces' order, and the pieces the repo
+ * decided not to have, with how to change that.
  * @param statuses - The pieces' statuses.
+ * @param decidedOff - The pieces left out by the repo's decision.
  * @param out - Where to write.
  */
-function printStatus(statuses: PieceStatus[], out: Output): void {
-  const width = Math.max(...statuses.map((status) => status.name.length));
+function printStatus(statuses: PieceStatus[], decidedOff: string[], out: Output): void {
+  const width = Math.max(...statuses.map((status) => status.name.length), ...decidedOff.map((name) => name.length));
   const stateWidth = Math.max(...statuses.map((status) => status.state.length));
   out.stdout("\nEste repo tiene:\n");
-  for (const status of statuses) out.stdout(`  ${status.name.padEnd(width)}  ${status.state.padEnd(stateWidth)}  · ${status.summary}\n`);
+  for (const name of PIECES) {
+    for (const status of statuses.filter((each) => each.name === name)) out.stdout(`  ${status.name.padEnd(width)}  ${status.state.padEnd(stateWidth)}  · ${status.summary}\n`);
+    if (decidedOff.includes(name)) out.stdout(`  ${name.padEnd(width)}  fuera por decisión del repo\n`);
+  }
+  if (decidedOff.length > 0) out.stdout(`\nPara cambiar qué piezas usa el repo: agent-kitchen apply --pieces (o edita ${DECISIONS}).\n`);
   out.stdout("\n");
+}
+
+/**
+ * Settles the pieces without a decision and writes the file, unless nothing changed.
+ * @param root - The repo.
+ * @param saved - What was read, or null if there is no file.
+ * @param statuses - What each piece found.
+ * @param chosen - The steps the person picked.
+ * @param out - Where to write.
+ */
+function saveDecisions(root: string, saved: Saved | null, statuses: PieceStatus[], chosen: Step[], out: Output): void {
+  const previous = saved?.pieces ?? {};
+  const pieces = decide(statuses, chosen, previous);
+  const same = Object.keys(pieces).length === Object.keys(previous).length && Object.entries(pieces).every(([name, value]) => previous[name] === value);
+  if (saved !== null && same) return;
+  writeDecisions(root, pieces, saved?.raw ?? {});
+  out.stdout(`Guardé qué piezas usa el repo en ${DECISIONS}; commitéalo.\n`);
 }
 
 /**
@@ -220,15 +249,36 @@ export async function sync(options: SyncOptions, out: Output): Promise<number> {
   if (options.yes && options.dryRun) throw new UsageError("usa --yes o --dry-run, no los dos.");
   const root = mainCheckout(options.cwd, "agent-kitchen apply");
   setVerbose(options.verbose);
+  const saved = readDecisions(root);
+  for (const warning of saved?.warnings ?? []) warn(out, warning);
+  const skip = [...options.skip, ...off(saved)];
+  const asks = out.interactive && !options.yes && !options.dryRun;
   if (out.interactive) out.stdout("Revisando el repo y las últimas versiones…\n");
-  const statuses = await statusesOf(root, options.skip);
-  printStatus(statuses, out);
+  let statuses = await statusesOf(root, skip);
+  if (saved !== null && !asks && !options.dryRun) {
+    const left = undecided(saved).filter((name) => statuses.some((status) => status.name === name && !status.installed));
+    if (left.length > 0) {
+      skip.push(...left);
+      statuses = await statusesOf(root, skip);
+      out.stdout(`Pieza nueva sin decisión: ${left.join(", ")}. Corre agent-kitchen apply en una terminal para elegir.\n`);
+    }
+  }
+  if (saved !== null) {
+    const fresh = undecided(saved);
+    for (const status of statuses.filter((each) => fresh.includes(each.name))) {
+      status.state += " (nueva)";
+      for (const step of status.steps) step.label += " (nueva)";
+    }
+  }
+  printStatus(statuses, off(saved).filter((name) => !options.skip.includes(name)), out);
   const steps = statuses.flatMap((status) => status.steps);
   if (steps.length === 0) {
+    if (asks) saveDecisions(root, saved, statuses, [], out);
     out.stdout("Todo al día: no hay nada que instalar ni actualizar.\n");
     return 0;
   }
   const chosen = await chooseSteps(root, steps, options, out);
+  if (asks && Array.isArray(chosen)) saveDecisions(root, saved, statuses, chosen, out);
   if (chosen === "leave") {
     out.stdout("No se cambió nada.\n");
     return 0;

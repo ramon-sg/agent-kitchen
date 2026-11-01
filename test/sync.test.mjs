@@ -4,6 +4,7 @@
 // tool, through the fakes of fake-tools.mjs.
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { CANDIDATES, installedRepo, makeRepo } from "./helpers.mjs";
 
@@ -365,4 +366,104 @@ test("when the guard cannot write, the hint about Claude's sandbox is added to i
   assert.equal(r.status, 1);
   assert.match(r.err, /no tuvo permiso para escribir en el repo\. Si corres agent-kitchen dentro de una sesión de Claude, su sandbox bloquea \.claude\/settings\.json; corre 'npx github:ramon-sg\/claude-repo-guard#v0\.5\.1 apply' desde tu terminal/);
   assert.match(r.err, /EPERM: operation not permitted/);
+});
+
+// The decisions file as text, to check it was left as it was.
+const decisionsText = (repo) => readFileSync(join(repo.main, ".agents/kitchen.json"), "utf8");
+
+// Whether a run called a tool, downloads included.
+const called = (repo, prefix) => repo.allCalls().some((args) => args.some((arg) => arg.startsWith(prefix)));
+
+test("a piece set to false is never offered, shown as the repo's decision, and --yes leaves it", () => {
+  const repo = makeRepo();
+  repo.write(".agents/kitchen.json", { pieces: { "claude-repo-guard": false } });
+
+  const r = repo.cli(["--yes"]);
+
+  assert.equal(r.status, 0, r.err);
+  assert.ok(!called(repo, "github:ramon-sg/claude-repo-guard"));
+  assert.match(r.out, /claude-repo-guard +fuera por decisión del repo/);
+  assert.match(r.out, /agent-kitchen apply --pieces/);
+});
+
+test("issue-flow set to false acts like --skip issue-flow", () => {
+  const repo = makeRepo();
+  repo.write(".agents/kitchen.json", { pieces: { "issue-flow": false, "claude-cloud": true, "claude-repo-guard": true, skills: true, "agents-md": true } });
+
+  const general = JSON.stringify(CANDIDATES.filter((candidate) => candidate.catalog === "ramon-sg/agent-skills"));
+
+  const r = repo.cli(["--yes"], { env: { FAKE_CANDIDATES: general } });
+
+  assert.equal(r.status, 0, r.err);
+  assert.ok(repo.allCalls().some((args) => args.includes("--candidates") && !args.includes("ramon-sg/issue-flow#v0.2.0")));
+  assert.equal(repo.exists(".claude/repo-guard.config.json") ? repo.read(".claude/repo-guard.config.json").environment : undefined, undefined);
+  assert.deepEqual(repo.calls().at(-1), ["@ramon-sg/skills-manager@1", "init", "--catalog", "ramon-sg/agent-skills", "--select", "catalog:ramon-sg/agent-skills/planning"]);
+});
+
+test("--yes without the file does what it did and writes no file", () => {
+  const repo = makeRepo();
+
+  const r = repo.cli(["--yes"]);
+
+  assert.equal(r.status, 0, r.err);
+  assert.equal(repo.exists(".agents/kitchen.json"), false);
+});
+
+test("--dry-run and --skip leave the file as it was", () => {
+  const repo = makeRepo();
+  const text = '{ "pieces": { "skills": false }, "other": 1 }\n';
+  repo.write(".agents/kitchen.json", text);
+
+  const dry = repo.cli(["--dry-run"]);
+  assert.equal(dry.status, 0, dry.err);
+  assert.equal(decisionsText(repo), text);
+
+  const skipped = repo.cli(["--yes", "--skip", "claude-cloud"]);
+  assert.equal(skipped.status, 0, skipped.err);
+  assert.equal(decisionsText(repo), text);
+});
+
+test("with the file, a new piece is not installed without a terminal, and says so", () => {
+  const repo = makeRepo();
+  repo.write(".agents/kitchen.json", { pieces: { "issue-flow": true, "claude-repo-guard": true, skills: true, "agents-md": true } });
+  const text = decisionsText(repo);
+
+  const r = repo.cli(["--yes"]);
+
+  assert.equal(r.status, 0, r.err);
+  assert.ok(!called(repo, "@ramon-sg/claude-cloud"));
+  assert.match(r.out, /Pieza nueva sin decisión: claude-cloud\. Corre agent-kitchen apply en una terminal/);
+  assert.equal(decisionsText(repo), text);
+});
+
+test("with the file, an installed piece without a decision is updated with --yes", () => {
+  const repo = installedRepo({ guard: "0.1.0" });
+  repo.write(".agents/kitchen.json", { pieces: { "issue-flow": true, "claude-cloud": true, skills: true, "agents-md": true } });
+
+  const r = repo.cli(["--yes"]);
+
+  assert.equal(r.status, 0, r.err);
+  assert.ok(repo.calls().some((args) => args[0] === "github:ramon-sg/claude-repo-guard#v0.2.0"));
+});
+
+test("a non-boolean decision warns and counts as no decision", () => {
+  const repo = makeRepo();
+  repo.write(".agents/kitchen.json", { pieces: { "issue-flow": true, "claude-cloud": "no", "claude-repo-guard": true, skills: true, "agents-md": true } });
+
+  const r = repo.cli(["--yes"]);
+
+  assert.equal(r.status, 0, r.err);
+  assert.match(r.err, /"claude-cloud" no es true ni false/);
+  assert.ok(!called(repo, "@ramon-sg/claude-cloud"));
+});
+
+test("a broken decisions file stops apply and is left as it was", () => {
+  const repo = makeRepo();
+  repo.write(".agents/kitchen.json", "{");
+
+  const r = repo.cli(["--yes"]);
+
+  assert.equal(r.status, 1);
+  assert.match(r.err, /\.agents\/kitchen\.json no es JSON válido/);
+  assert.equal(decisionsText(repo), "{");
 });
