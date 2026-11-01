@@ -99,7 +99,8 @@ function printStatus(statuses: PieceStatus[], decidedOff: string[], out: Output)
 }
 
 /**
- * Settles the pieces without a decision and writes the file, unless nothing changed.
+ * Settles the pieces without a decision and writes the file, unless nothing changed or
+ * nothing was decided.
  * @param root - The repo.
  * @param saved - What was read, or null if there is no file.
  * @param statuses - What each piece found.
@@ -110,7 +111,7 @@ function saveDecisions(root: string, saved: Saved | null, statuses: PieceStatus[
   const previous = saved?.pieces ?? {};
   const pieces = decide(statuses, chosen, previous);
   const same = Object.keys(pieces).length === Object.keys(previous).length && Object.entries(pieces).every(([name, value]) => previous[name] === value);
-  if (saved !== null && same) return;
+  if (Object.keys(pieces).length === 0 || (saved !== null && same)) return;
   writeDecisions(root, pieces, saved?.raw ?? {});
   out.stdout(`Guardé qué piezas usa el repo en ${DECISIONS}; commitéalo.\n`);
 }
@@ -253,6 +254,7 @@ export async function sync(options: SyncOptions, out: Output): Promise<number> {
   for (const warning of saved?.warnings ?? []) warn(out, warning);
   const skip = [...options.skip, ...off(saved)];
   const asks = out.interactive && !options.yes && !options.dryRun;
+  const saves = asks && options.skip.length === 0;
   if (out.interactive) out.stdout("Revisando el repo y las últimas versiones…\n");
   let statuses = await statusesOf(root, skip);
   if (saved !== null && !asks && !options.dryRun) {
@@ -273,12 +275,12 @@ export async function sync(options: SyncOptions, out: Output): Promise<number> {
   printStatus(statuses, off(saved).filter((name) => !options.skip.includes(name)), out);
   const steps = statuses.flatMap((status) => status.steps);
   if (steps.length === 0) {
-    if (asks) saveDecisions(root, saved, statuses, [], out);
+    if (saves) saveDecisions(root, saved, statuses, [], out);
     out.stdout("Todo al día: no hay nada que instalar ni actualizar.\n");
     return 0;
   }
   const chosen = await chooseSteps(root, steps, options, out);
-  if (asks && Array.isArray(chosen)) saveDecisions(root, saved, statuses, chosen, out);
+  if (saves && Array.isArray(chosen)) saveDecisions(root, saved, statuses, chosen, out);
   if (chosen === "leave") {
     out.stdout("No se cambió nada.\n");
     return 0;
