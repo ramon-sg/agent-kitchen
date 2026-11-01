@@ -44,7 +44,34 @@ test("--yes on an empty repo installs everything in order, each piece with its o
   assert.match(r.out, /^Instalando issue-flow 0\.2\.0…$/m);
   assert.match(r.out, /✓ issue-flow 0\.2\.0 instalado: config del flujo, hooks y scripts \(\d+,\d s\)$/m);
   assert.doesNotMatch(r.out, /^→ /m);
-  assert.match(r.out, /Listo\. Falta: corre 'npm install'/);
+  assert.deepEqual(repo.npmCalls().filter((args) => args[0] === "install"), [["install"]]);
+  assert.match(r.out, /✓ Dependencias instaladas con npm/);
+  assert.match(r.out, /Listo\. Falta: revisa el diff y haz commit\./);
+});
+
+test("without --commit, steps that leave package.json as it was do not install, even if it already had changes", () => {
+  const repo = installedRepo({ cloud: "1.0.0" });
+  const pkg = repo.read("package.json");
+  repo.write("package.json", { ...pkg, scripts: { mio: "true" } });
+
+  const r = repo.cli(["--yes"]);
+
+  assert.equal(r.status, 0, r.err);
+  assert.equal(repo.read(".claude/cloud.json").version, "1.1.0");
+  assert.deepEqual(repo.npmCalls().filter((args) => args[0] === "install"), []);
+  assert.doesNotMatch(r.out, /install/);
+  assert.match(r.out, /Listo\. Falta: revisa el diff y haz commit\./);
+});
+
+test("without --commit, a failed install is a failure and is left to do by hand", () => {
+  const repo = makeRepo();
+
+  const r = repo.cli(["--yes", "--skip", "claude-cloud,claude-repo-guard,skills"], { env: { FAKE_FAIL: "install" } });
+
+  assert.equal(r.status, 1);
+  assert.match(r.out, /^✗ Falló: Instalar las dependencias con npm \(\d+,\d s\)$/m);
+  assert.match(r.err, /fake: npm install failed/);
+  assert.match(r.out, /Terminó, pero fallaron: Instalar las dependencias con npm\. Falta: corre 'npm install', revisa el diff y haz commit\./);
 });
 
 test("the tools' output is hidden unless a step fails, and shown with --verbose", () => {

@@ -118,6 +118,17 @@ export function packageManager(root: string): string {
 }
 
 /**
+ * The text of the repo's package.json, to tell later whether a run changed it.
+ * @param root - The repo.
+ * @returns Its text, or null if there is none.
+ * @example packageText(root) // '{ "devDependencies": … }'
+ */
+export function packageText(root: string): string | null {
+  const file = join(root, "package.json");
+  return existsSync(file) ? readFileSync(file, "utf8") : null;
+}
+
+/**
  * The version of a package installed in the repo's `node_modules`.
  * @param root - The repo.
  * @param name - The package.

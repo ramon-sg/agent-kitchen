@@ -51,7 +51,7 @@ El sandbox de `claude-repo-guard` no deja escribir `.claude/settings.json`, `.cl
 | `claude-cloud` | `.claude/cloud.json` | Cambiar la versión fijada y commitear |
 | `claude-repo-guard` | `.claude/repo-guard.manifest.json` | `npx github:ramon-sg/claude-repo-guard#vX.Y.Z apply` |
 
-`npx agent-kitchen apply` hace todo lo anterior en orden; `npx agent-kitchen doctor` lo revisa sin cambiar nada y sale con 1 si algo falla. Con `--commit`, `apply` exige el repo limpio y en la base, instala si cambió `package.json` y al final pregunta si dejar los cambios, commitearlos en la base, en una rama `chore/agent-kitchen-apply-<fecha>` o en esa rama con push y PR.
+`npx agent-kitchen apply` hace todo lo anterior en orden; `npx agent-kitchen doctor` lo revisa sin cambiar nada y sale con 1 si algo falla. Si los pasos cambiaron `package.json`, `apply` corre el install del gestor de paquetes al final. Con `--commit`, `apply` exige el repo limpio y en la base, instala si cambió `package.json` y al final pregunta si dejar los cambios, commitearlos en la base, en una rama `chore/agent-kitchen-apply-<fecha>` o en esa rama con push y PR.
 
 ## Dónde están las skills
 
