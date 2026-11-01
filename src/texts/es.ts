@@ -133,7 +133,7 @@ export const es: Catalog = {
   onlyOptional: (menus) => `Todo al día. Opcional, para elegir en una terminal: ${menus.join("; ")}.`,
   suggested: (dryRun) => `Pasos sugeridos${dryRun ? "" : " (para hacerlos, corre agent-kitchen apply en una terminal, o con --yes)"}:`,
   summary: (failed) => (failed.length === 0 ? "Listo." : `Terminó, pero fallaron: ${failed.join("; ")}.`),
-  next: (manager) => `Falta: corre '${manager} install', revisa el diff y haz commit.`,
+  next: (failedInstall) => `Falta: ${failedInstall === null ? "" : `corre '${failedInstall} install', `}revisa el diff y haz commit.`,
   undecided: (names) => `Pieza nueva sin decisión: ${list(names)}. Corre agent-kitchen apply en una terminal para elegir.`,
   ownSkillsKept: (names) => `Se dejan fuera las skills que el repo ya tiene como propias: ${list(names)}. Para reemplazarlas, corre agent-kitchen apply en una terminal.`,
   saved: (file, commits) => `Guardé qué piezas usa el repo en ${file}${commits ? "" : "; commitéalo"}.`,

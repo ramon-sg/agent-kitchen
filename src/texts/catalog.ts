@@ -37,8 +37,8 @@ export interface Catalog {
   suggested: (dryRun: boolean) => string;
   /** The last line when every step worked or some failed. */
   summary: (failed: string[]) => string;
-  /** What is left to do by hand after the steps, without --commit. */
-  next: (manager: string) => string;
+  /** What is left to do by hand after the steps, without --commit; with the manager if its install failed. */
+  next: (failedInstall: string | null) => string;
   /** A new piece left out because no one was asked about it. */
   undecided: (names: string[]) => string;
   /** The repo's own skills left out of a pick. */

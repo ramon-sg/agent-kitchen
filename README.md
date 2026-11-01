@@ -59,7 +59,7 @@ npx agent-kitchen doctor                       # revisa cada pieza con su propio
 
 - **Sin terminal y sin `--yes`** (por ejemplo, desde un agente), solo muestra lo que ofrecería.
 - **Corre en el checkout principal,** no en un worktree, y desde tu terminal. Dentro de una sesión de Claude, el sandbox de `claude-repo-guard` no deja escribir `.claude/settings.json`.
-- **Al terminar,** corre el `install` de tu gestor de paquetes, revisa el diff y haz commit. O usa `--commit`.
+- **Al terminar,** si los pasos cambiaron `package.json`, corre el `install` de tu gestor de paquetes. Te queda revisar el diff y hacer commit. O usa `--commit`.
 
 **`--commit`** deja los cambios commiteados sin que lo haga un agente:
 

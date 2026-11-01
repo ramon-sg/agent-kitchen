@@ -11,7 +11,8 @@
  * flow's version), one line each, with the
  * tools' output only when one fails; one that fails does not stop the rest. With `--yes`
  * it does what is suggested without asking (and keeps the repo's own skills); without a
- * terminal it only shows the steps. With `--commit` it first checks the repo is clean and on
+ * terminal it only shows the steps. Without `--commit`, it installs at the end if the steps
+ * changed package.json. With `--commit` it first checks the repo is clean and on
  * its base branch, and at the end installs if package.json changed and asks what to do with
  * the changes (see git-finish.ts), also when the only change is the decisions file below;
  * the steps then show as plain lines, since a spinner before a question leaves it deaf.
@@ -34,11 +35,11 @@ import { issueFlowStatus, NAME as FLOW } from "../pieces/issue-flow.js";
 import { keepOwn, NAME as SKILLS, ownInPick, skillsStatus } from "../pieces/skills.js";
 import { agentsMdStatus, NAME as AGENTS_MD } from "../pieces/agents-md.js";
 import { NAME as SKILLS_MANAGER, skillsManagerStatus } from "../pieces/skills-manager.js";
-import { mainCheckout, packageManager } from "../repo.js";
+import { mainCheckout, packageManager, packageText } from "../repo.js";
 import { download, failedOutput, runInstall, setVerbose } from "../tools.js";
 import { commitLine, DECISIONS_LINE } from "../commit-texts.js";
 import { type Progress, progressFor } from "../progress.js";
-import { stepLabel, ui } from "../texts/index.js";
+import { phrases, stepLabel, ui } from "../texts/index.js";
 
 /** Options of the command. */
 export interface SyncOptions {
@@ -359,14 +360,33 @@ export async function sync(options: SyncOptions, out: Output): Promise<number> {
     if (!options.yes) out.stdout(noStepsMessage("none", wrote));
     return endWithoutSteps();
   }
+  const pkgBefore = packageText(root);
   const failedSteps: Step[] = [];
   for (const step of chosen) {
     if (!(await runStep(root, step, progress, out))) failedSteps.push(step);
   }
   const failed = failedSteps.map(stepLabel);
   if (base !== null) return commitChanges(root, base, commitLabels(chosen.filter((step) => !failedSteps.includes(step)), wrote), failed, progress, options, out);
-  out.stdout(`\n${ui.summary(failed)} ${ui.next(packageManager(root))}\n`);
+  const installFailed = packageText(root) !== pkgBefore ? !(await install(root, progress, out)) : false;
+  if (installFailed) failed.push(phrases({ kind: "install-deps", manager: packageManager(root) }).menu);
+  out.stdout(`\n${ui.summary(failed)} ${ui.next(installFailed ? packageManager(root) : null)}\n`);
   return failed.length === 0 ? 0 : 1;
+}
+
+/**
+ * Runs the repo's install with the same progress as a step, and shows its output if it fails.
+ * @param root - The repo.
+ * @param progress - How progress is shown.
+ * @param out - Where to write.
+ * @returns Whether it worked.
+ */
+async function install(root: string, progress: Progress, out: Output): Promise<boolean> {
+  const text = { kind: "install-deps", manager: packageManager(root) } as const;
+  progress.start(text);
+  const installed = await runInstall(root, text.manager);
+  progress.stop(text, installed.ok);
+  if (!installed.ok) out.stderr(failedOutput(installed.output));
+  return installed.ok;
 }
 
 /**
@@ -390,16 +410,9 @@ async function commitChanges(root: string, base: string, done: string[], failed:
   }
   const manager = packageManager(root);
   const packageChanged = changed.includes("package.json");
-  if (packageChanged) {
-    const text = { kind: "install-deps", manager } as const;
-    progress.start(text);
-    const installed = await runInstall(root, manager);
-    progress.stop(text, installed.ok);
-    if (!installed.ok) {
-      out.stderr(failedOutput(installed.output));
-      out.stdout(`\n${summary} No commiteé: el install falló y los cambios quedan sin commit.\n`);
-      return 1;
-    }
+  if (packageChanged && !(await install(root, progress, out))) {
+    out.stdout(`\n${summary} No commiteé: el install falló y los cambios quedan sin commit.\n`);
+    return 1;
   }
   const paths = changedPaths(root);
   out.stdout(`\n${summary} Cambios:\n${paths.map((path) => `  ${path}`).join("\n")}\n`);

@@ -184,7 +184,8 @@ test("without --commit, a dirty repo runs as today and nothing is committed", ()
 
   assert.equal(r.status, 0, r.err);
   assert.equal(repo.git("rev-list", "--count", "HEAD"), "1");
-  assert.match(r.out, /Falta: corre 'npm install'/);
+  assert.deepEqual(repo.npmCalls().filter((args) => args[0] === "install"), [["install"]]);
+  assert.match(r.out, /Falta: revisa el diff y haz commit\./);
 });
 
 test("finish base: one commit on main, nothing pushed", async () => {
