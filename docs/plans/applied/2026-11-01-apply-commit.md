@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: applied
 type: feature
 prs: [24]
 issue: 23
@@ -26,7 +26,7 @@ Una pregunta después de un spinner puede no escuchar el teclado ([V5](#v5)). Co
 
 | # | Etapa | Estado | PR |
 |---|---|---|---|
-| 1 | `apply --commit`: revisión previa, install, pregunta final y commit, rama o PR | en curso | [#24](https://github.com/ramon-sg/agent-kitchen/pull/24) |
+| 1 | `apply --commit`: revisión previa, install, pregunta final y commit, rama o PR | implementada | [#24](https://github.com/ramon-sg/agent-kitchen/pull/24) |
 
 ## Decisiones propias
 
