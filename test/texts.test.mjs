@@ -77,7 +77,7 @@ test("a plain step prints its start, says it is still running while it takes, an
   const count = lines.length;
   await sleep(30);
 
-  assert.equal(lines[0], "Actualizando issue-flow de 0.2.7 a 0.3.0…\n");
+  assert.equal(lines[0], "◒ Actualizando issue-flow de 0.2.7 a 0.3.0…\n");
   assert.ok(lines.slice(1, -1).length >= 2, lines.join(""));
   for (const line of lines.slice(1, -1)) assert.equal(line, "  … sigue (12 s)\n");
   assert.equal(lines.at(-1), "✓ issue-flow actualizado de 0.2.7 a 0.3.0, con sus hooks y sus skills (12 s)\n");
@@ -93,5 +93,5 @@ test("a failed step ends with its order and how long it took; with the tools' ou
   await sleep(25);
   progress.stop(step, false);
 
-  assert.deepEqual(lines, ["Ajustando claude-repo-guard al flujo de issues…\n", "✗ Falló: Ajustar claude-repo-guard a lo que necesita el flujo de issues (0,0 s)\n"]);
+  assert.deepEqual(lines, ["◒ Ajustando claude-repo-guard al flujo de issues…\n", "✗ Falló: Ajustar claude-repo-guard a lo que necesita el flujo de issues (0,0 s)\n"]);
 });

@@ -109,7 +109,7 @@ test("--commit --yes installs, commits on a new branch, pushes it, opens the PR 
 
   assert.equal(r.status, 0, r.err);
   assert.deepEqual(repo.npmCalls().filter((args) => args[0] === "install"), [["install"]]);
-  assert.match(r.out, /^Instalando las dependencias con npm…\n✓ Dependencias instaladas con npm \(\d+,\d s\)$/m);
+  assert.match(r.out, /^◒ Instalando las dependencias con npm…\n✓ Dependencias instaladas con npm \(\d+,\d s\)$/m);
   assert.equal(repo.git("branch", "--show-current"), "main");
   assert.equal(repo.git("rev-parse", "HEAD"), before);
   assert.deepEqual(dirty(repo), []);

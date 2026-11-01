@@ -31,7 +31,8 @@ function endLine(text: StepText, ok: boolean, ms: number): string {
 }
 
 /**
- * Progress as plain lines: the start, a line now and then while it runs, and the end.
+ * Progress as plain lines: the start (marked ◒, like the spinner), a line now and then while it
+ * runs, and the end (marked ✓ or ✗).
  * @param out - Where to write.
  * @param options - Whether to print while it runs, how often, and the clock.
  * @returns The progress.
@@ -44,7 +45,7 @@ export function plainProgress(out: Output, options: { ticks: boolean; tickMs?: n
   return {
     start: (text) => {
       started = now();
-      out.stdout(`${phrases(text).doing}\n`);
+      out.stdout(`◒ ${phrases(text).doing}\n`);
       if (options.ticks) timer = setInterval(() => out.stdout(`${ui.still(ui.duration(now() - started))}\n`), options.tickMs ?? TICK_MS);
     },
     stop: (text, ok) => {
