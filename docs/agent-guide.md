@@ -19,6 +19,7 @@ Referencia para un agente que trabaja en un repo preparado con `agent-kitchen`. 
 |---|---|---|
 | `package.json` | `issue-flow apply` (`init` antes de 0.3.0) | `@ramon-sg/issue-flow` y `@ramon-sg/github-rest` como devDependencies con versión exacta (antes de 0.3.0, también `@ramon-sg/skills-manager`); scripts `issue:start`, `worktree:prune`, `pr:worktree` |
 | `package.json` | `claude-repo-guard apply` | Scripts `claude:auto` y `claude:free` |
+| `package.json` | `agent-kitchen` (pieza `issue-flow`) | Desde issue-flow 0.3.0, sube `@ramon-sg/github-rest` si es una versión exacta bajo el mínimo que pide esa versión (el piso de su rango en npm). Nunca lo baja; un rango no se toca |
 | `package.json` | `agent-kitchen` (pieza `skills-manager`) | Sube `@ramon-sg/skills-manager` a 1.2.0 si es una versión exacta menor, o lo agrega si falta; sin `package.json`, si issue-flow se instala en la misma corrida, lo crea con él. Nunca lo baja; un rango no se toca |
 | `.agents/flow.json` | `issue-flow apply` (`init` antes de 0.3.0), editable | Config del flujo: `baseBranch`, `branch.template`, `worktrees.setup/teardown/ports/dockerProjects`, textos de `start.*`, `plans.dirs`. Esquema: [issue-flow/schema.json](https://github.com/ramon-sg/issue-flow/blob/main/schema.json) |
 | `.agents/skills.json` | `skills-manager` | Manifest: qué skills se quieren y de dónde (`catalog`, `plugin`, `repo`, `local`), con el `ref` de cada catálogo |
@@ -42,6 +43,7 @@ El sandbox de `claude-repo-guard` no deja escribir `.claude/settings.json`, `.cl
 |---|---|---|
 | `issue-flow` | `package.json` (versión exacta) | `npx @ramon-sg/issue-flow@<versión> apply --yes` (`upgrade` antes de 0.3.0), y luego sus skills a la tag `v<versión>`. Con hooks o `$schema` atrás de la versión del repo, `apply` en esa versión |
 | Labels del flujo | GitHub; la lista, en `labels` de `.agents/flow.json` | `issue-flow labels sync` (desde 0.2.6) crea los que faltan; `agent-kitchen apply` lo ofrece y `doctor` los anota |
+| `github-rest` | `package.json` (versión exacta) | `agent-kitchen apply` la sube al mínimo de la versión de issue-flow, desde 0.3.0; más arriba, npm |
 | Skills del flujo | `ref` del catálogo `ramon-sg/issue-flow` en `.agents/skills.json` | Siempre en la misma tag que la CLI, porque la llaman |
 | Skills generales | El lock, una tag por skill | `skills-manager update <nombre>` |
 | `skills-manager` | La exacta de `package.json`; si no, la de `node_modules`; si no, el rango (salvo `workspace:`); si no, la última 1.x | `agent-kitchen apply` la sube al mínimo que necesita (1.2.0); más arriba, npm |

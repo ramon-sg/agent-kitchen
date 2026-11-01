@@ -7,14 +7,16 @@
  * updating runs `upgrade`. After updating or repairing, and after installing with `apply`,
  * the flow's skills move to the same tag, because they call the CLI. If only the skills are
  * off, they move alone. From 0.2.6 it also offers `labels sync`, after the install or
- * update, when GitHub lacks some of the labels the flow expects.
+ * update, when GitHub lacks some of the labels the flow expects. From 0.3.0, whose `apply`
+ * keeps the repo's github-rest, it also raises an exact github-rest below the floor of the
+ * range that version of the flow declares on npm, as the flow itself reads it.
  * `apply` and `init` run with `--yes`: the person answered agent-kitchen's questions before
  * the steps.
  */
 import { type Check, type Context, FLOW_CATALOG, FLOW_CONFIG, FLOW_PACKAGE, type PieceStatus, type Step } from "../piece.js";
-import { dependencyVersion, isObject, readJson } from "../repo.js";
+import { dependencyVersion, isObject, readJson, setDependency } from "../repo.js";
 import { catalogSkills, manifestCatalogs, pinCatalog, updateSkills } from "../skills-files.js";
-import { captureNpx, compareVersions, isRelease, npmLatest, runNpx } from "../tools.js";
+import { captureNpx, compareVersions, isRelease, npmDependencies, npmLatest, runNpx } from "../tools.js";
 
 /** The piece's name, as `--skip` takes it. */
 export const NAME = "issue-flow";
@@ -30,6 +32,9 @@ const LABELS_SINCE = "0.2.6";
 
 /** The first version whose `apply` installs, updates and repairs, instead of `init` and `upgrade`. */
 const APPLY_SINCE = "0.3.0";
+
+/** The client of GitHub's REST API that the flow's skills call. */
+const GITHUB_REST = "@ramon-sg/github-rest";
 
 /** One check of the flow's `doctor --json`. */
 interface FlowCheck {
@@ -218,6 +223,44 @@ function labelsStep(version: string, missing: string[]): Step {
 }
 
 /**
+ * The lowest github-rest a version of the flow works with: the floor of the range it declares
+ * on npm (`^0.3.0` gives 0.3.0), as the flow reads it from its own package.json.
+ * @param version - The flow's version.
+ * @returns The version, or null before 0.3.0 (its `upgrade` raises github-rest) or if npm cannot tell.
+ * @example await restMinimum("0.3.0") // "0.3.0"
+ */
+async function restMinimum(version: string): Promise<string | null> {
+  if (!usesApply(version)) return null;
+  const range = (await npmDependencies(`${FLOW_PACKAGE}@${version}`))?.[GITHUB_REST]?.replace(/^[\^~]/, "");
+  return range !== undefined && isRelease(range) ? range : null;
+}
+
+/**
+ * The step that raises github-rest to a version of the flow's minimum, if package.json has an
+ * exact version below it. A missing one gets none: `apply` adds it at the minimum. A range is
+ * the repo's own choice. At run time it reads package.json again, and raises nothing unless
+ * the repo has that version of the flow by then.
+ * @param root - The repo.
+ * @param version - The flow's version the repo ends at.
+ * @param minimum - The lowest github-rest it works with.
+ * @returns The step, or null.
+ */
+function restStep(root: string, version: string, minimum: string): Step | null {
+  const below = (rest: string | null): rest is string => rest !== null && isRelease(rest) && compareVersions(rest, minimum) < 0;
+  const current = dependencyVersion(readJson(root, "package.json"), GITHUB_REST);
+  if (!below(current)) return null;
+  return { piece: NAME, checked: true, downloads: [], label: `Subir github-rest ${current} → ${minimum}, el mínimo de issue-flow ${version}`, run: async (context) => {
+    if (flowVersion(context.root) !== version) context.note(`no se subió: el repo no tiene issue-flow ${version}`);
+    else if (!below(dependencyVersion(readJson(context.root, "package.json"), GITHUB_REST))) context.note("package.json ya tenía una versión que sirve");
+    else {
+      setDependency(context.root, GITHUB_REST, minimum);
+      context.note(`${GITHUB_REST} ${minimum} en package.json`);
+    }
+    return true;
+  } };
+}
+
+/**
  * The step the repo needs, if any.
  * @param installed - The repo's version, or null.
  * @param latest - The latest on npm, or null.
@@ -255,11 +298,12 @@ export async function issueFlowStatus(root: string): Promise<PieceStatus> {
   const latest = await npmLatest(FLOW_PACKAGE);
   const behind = installed !== null && latest !== null && compareVersions(latest, installed) > 0;
   const target = installed === null || behind ? latest : installed;
-  const [missing, checks] = await Promise.all([target === null ? [] : missingLabels(root, target), installed !== null && !behind && usesApply(installed) ? flowDoctor(root, installed, true) : null]);
+  const [missing, checks, minimum] = await Promise.all([target === null ? [] : missingLabels(root, target), installed !== null && !behind && usesApply(installed) ? flowDoctor(root, installed, true) : null, target === null ? null : restMinimum(target)]);
   const step = stepFor(installed, latest, root, installed !== null && checks !== null && needsRepair(checks, installed));
+  const rest = target === null || minimum === null ? null : restStep(root, target, minimum);
   const known = `${latest === null ? " (npm no responde)" : ""}${missing === null ? " (no se pudieron leer los labels de GitHub)" : ""}`;
   const state = installed === null ? `no instalado${known}` : behind ? `${installed}, hay ${latest}${known}` : `${installed}, al día${known}`;
-  const steps = [...(step === null ? [] : [step]), ...(target !== null && missing !== null && missing.length > 0 ? [labelsStep(target, missing)] : [])];
+  const steps = [...(step === null ? [] : [step]), ...(rest === null ? [] : [rest]), ...(target !== null && missing !== null && missing.length > 0 ? [labelsStep(target, missing)] : [])];
   return { name: NAME, summary, installed: installed !== null, state, steps };
 }
 

@@ -29,8 +29,11 @@ export const CANDIDATES = [
 
 const git = (cwd, ...args) => execFileSync("git", args, { cwd, encoding: "utf8", env: { ...process.env, ...GIT_ENV } }).trim();
 
+// The calls of one program logged in a file.
+const logged = (log, program) => (existsSync(log) ? readFileSync(log, "utf8").split("\n").filter(Boolean).map((line) => JSON.parse(line)).filter((call) => call.program === program).map((call) => call.args) : []);
+
 // The npx calls logged in a file, without `--yes`.
-const npxCalls = (log) => (existsSync(log) ? readFileSync(log, "utf8").split("\n").filter(Boolean).map((line) => JSON.parse(line)).filter((call) => call.program === "npx").map((call) => call.args.slice(1)) : []);
+const npxCalls = (log) => logged(log, "npx").map((args) => args.slice(1));
 
 // A repo for the tests. `tags` gives the release tags of each GitHub repo.
 export function makeRepo({ tags = { "ramon-sg/claude-repo-guard": ["0.1.0", "0.2.0"], "ramon-sg/agent-skills": ["0.1.0", "0.2.0"] } } = {}) {
@@ -79,6 +82,8 @@ export function makeRepo({ tags = { "ramon-sg/claude-repo-guard": ["0.1.0", "0.2
     calls: () => npxCalls(log).filter((args) => args[0] !== "--package" && !args.includes("--candidates")),
     // Every npx call of the last run, without `--yes`.
     allCalls: () => npxCalls(log),
+    // Every npm call of the last run.
+    npmCalls: () => logged(log, "npm"),
     read: (path) => JSON.parse(readFileSync(join(main, path), "utf8")),
     exists: (path) => existsSync(join(main, path)),
     write: (path, value) => {

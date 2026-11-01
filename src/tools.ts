@@ -1,7 +1,7 @@
 /**
  * @file How agent-kitchen reaches the other tools and their releases: `npx` to run them (always
  * by their scoped name or GitHub spec, because the unscoped names on npm belong to other
- * people), `npm view` for the latest version on npm, and `git ls-remote` for the latest
+ * people), `npm view` for the latest version on npm and a version's dependencies, and `git ls-remote` for the latest
  * `vX.Y.Z` tag on GitHub. Everything is asynchronous so the lookups run at the same time,
  * and each lookup runs once per process. A lookup that fails, or takes over 20 seconds,
  * gives null: the piece is shown, not offered. git never asks for credentials here.
@@ -27,7 +27,7 @@ const FAILED_LINES = 25;
 let verbose = false;
 
 /** Lookups already started, by what they look up. */
-const lookups = new Map<string, Promise<string | null>>();
+const lookups = new Map<string, Promise<unknown>>();
 
 /** Downloads already started, by package. */
 const downloads = new Map<string, Promise<void>>();
@@ -104,8 +104,8 @@ function run(program: string, args: string[], options: { cwd?: string; timeout?:
  * @param lookup - How.
  * @returns Its result.
  */
-function once(key: string, lookup: () => Promise<string | null>): Promise<string | null> {
-  const known = lookups.get(key);
+function once<T>(key: string, lookup: () => Promise<T>): Promise<T> {
+  const known = lookups.get(key) as Promise<T> | undefined;
   if (known !== undefined) return known;
   const started = lookup();
   lookups.set(key, started);
@@ -123,6 +123,25 @@ export function npmLatest(name: string): Promise<string | null> {
     const result = await run("npm", ["view", name, "version", "--fetch-retries=0"], { timeout: LOOKUP_TIMEOUT_MS });
     const version = result.status === 0 ? result.out.trim() : "";
     return isRelease(version) ? version : null;
+  });
+}
+
+/**
+ * The dependencies a version of a package declares on npm.
+ * @param spec - The package and its version, as `name@x.y.z`.
+ * @returns Each dependency's range, or null if npm cannot tell.
+ * @example await npmDependencies("@ramon-sg/issue-flow@0.3.0") // { "@ramon-sg/github-rest": "^0.3.0" }
+ */
+export function npmDependencies(spec: string): Promise<Record<string, string> | null> {
+  return once(`npm-deps:${spec}`, async () => {
+    const result = await run("npm", ["view", spec, "dependencies", "--json", "--fetch-retries=0"], { timeout: LOOKUP_TIMEOUT_MS });
+    if (result.status !== 0) return null;
+    try {
+      const found: unknown = JSON.parse(result.out);
+      return typeof found === "object" && found !== null && !Array.isArray(found) ? (found as Record<string, string>) : null;
+    } catch {
+      return null;
+    }
   });
 }
 
