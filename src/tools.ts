@@ -82,9 +82,11 @@ export function isRelease(version: string): boolean {
  * @param options - The folder, a time limit, extra variables, and whether its output goes to the terminal.
  * @returns How it ended; status null if it could not start or ran out of time.
  */
-function run(program: string, args: string[], options: { cwd?: string; timeout?: number; env?: NodeJS.ProcessEnv; inherit?: boolean } = {}): Promise<Finished> {
+function run(program: string, args: string[], options: { cwd?: string; timeout?: number; env?: NodeJS.ProcessEnv; unset?: string[]; inherit?: boolean } = {}): Promise<Finished> {
   return new Promise((resolve) => {
-    const child = spawn(program, args, { cwd: options.cwd, env: { ...process.env, ...options.env }, stdio: options.inherit === true ? "inherit" : ["ignore", "pipe", "pipe"] });
+    const env = { ...process.env, ...options.env };
+    for (const name of options.unset ?? []) delete env[name];
+    const child = spawn(program, args, { cwd: options.cwd, env, stdio: options.inherit === true ? "inherit" : ["ignore", "pipe", "pipe"] });
     let out = "";
     let err = "";
     child.stdout?.on("data", (chunk: Buffer) => (out += chunk.toString()));
@@ -217,4 +219,30 @@ export function failedOutput(output: string): string {
 export async function captureNpx(root: string, args: string[], lookup = false): Promise<{ out: string; err: string; status: number | null } | null> {
   const result = await run("npx", ["--yes", ...args], { cwd: root, ...(lookup ? { timeout: LOOKUP_TIMEOUT_MS } : {}) });
   return result.status === null && result.out === "" ? null : { out: result.out, err: result.err, status: result.status };
+}
+
+/**
+ * Runs the repo's package manager's install: quietly, or with its output on the terminal
+ * with `--verbose`.
+ * @param root - The repo.
+ * @param manager - `npm`, `pnpm`, `bun` or `yarn`.
+ * @returns Whether it worked and, if it ran quietly, what it printed.
+ * @example await runInstall(root, "pnpm")
+ */
+export async function runInstall(root: string, manager: string): Promise<ToolRun> {
+  const result = await run(manager, ["install"], { cwd: root, inherit: verbose });
+  return { ok: result.status === 0, output: `${result.out}${result.err}` };
+}
+
+/**
+ * Runs `npx --yes <args>` in the repo without some variables of the environment, and returns
+ * what it printed.
+ * @param root - The repo.
+ * @param args - The package and its arguments.
+ * @param unset - The variables left out.
+ * @returns Its stdout, stderr and exit code.
+ * @example await captureNpxWithout(root, ["@ramon-sg/github-rest@0.3.0", "pr", "create"], ["GH_REPO"])
+ */
+export async function captureNpxWithout(root: string, args: string[], unset: string[]): Promise<{ out: string; err: string; status: number | null }> {
+  return run("npx", ["--yes", ...args], { cwd: root, unset });
 }
