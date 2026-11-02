@@ -81,7 +81,7 @@ test("noStepsMessage no contradice un archivo de decisiones guardado en la corri
   assert.equal(noStepsMessage("leave", true), "No corrí ningún paso; solo guardé qué piezas usa el repo.\n");
 });
 
-test("the commit of --commit names the saved decisions next to the steps that ran", async () => {
+test("the commit of --pr names the saved decisions next to the steps that ran", async () => {
   const { commitLabels } = await import("../dist/commands/sync.js");
   const saved = "Guardar qué piezas usa el repo en .agents/kitchen.json";
 

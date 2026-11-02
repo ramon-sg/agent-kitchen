@@ -1,12 +1,11 @@
 /**
- * @file The questions, in Spanish (`@clack/prompts`), all asked before any step runs: the
- * quick path (do everything suggested, pick, or leave), the checkbox menu of the steps, the
- * skills of a step grouped by catalog with their description, and whether to replace the
- * repo's own skills. They only run with a terminal.
+ * @file The questions, in Spanish (`@clack/prompts`), all asked before any step runs: where to
+ * apply (a PR or the checkout), the quick path (do everything suggested, pick, or leave), the
+ * checkbox menu of the steps, the skills of a step grouped by catalog with their description,
+ * and whether to replace the repo's own skills. They only run with a terminal.
  */
 import { styleText } from "node:util";
 import { confirm, groupMultiselect, isCancel, MULTISELECT_INSTRUCTIONS, multiselect, select, SELECT_INSTRUCTIONS } from "@clack/prompts";
-import type { FinishChoice } from "./git-finish.js";
 import type { Candidate, Step } from "./piece.js";
 import { stepLabel } from "./texts/index.js";
 
@@ -137,26 +136,24 @@ export async function askReplace(own: string[]): Promise<boolean | null> {
   return isCancel(answer) ? null : answer;
 }
 
+/** Where apply works: a PR from a clone of origin, or the person's checkout. */
+export type Place = "pr" | "here";
+
 /**
- * Asks, after the steps, what to do with the changes. Leaving them is the default, and
- * cancelling leaves them too.
+ * Asks, before anything else, where to apply the changes.
  * @param base - The base branch.
- * @param branch - The name of the new branch.
- * @param failed - Whether a step failed, to warn above the question.
- * @returns The answer.
- * @example await askFinish("main", "chore/agent-kitchen-apply-2026-11-01", false) // "pr"
+ * @returns The answer, or null if the person cancelled.
+ * @example await askPlace("main") // "pr"
  */
-export async function askFinish(base: string, branch: string, failed: boolean): Promise<FinishChoice> {
+export async function askPlace(base: string): Promise<Place | null> {
   spanishKeys();
-  const answer = await select<FinishChoice>({
-    message: failed ? "Algún paso falló. ¿Qué hago con los cambios?" : "¿Qué hago con los cambios?",
-    initialValue: "leave",
+  const answer = await select<Place>({
+    message: "¿Dónde aplico los cambios?",
+    initialValue: "pr",
     options: [
-      { value: "leave", label: "Dejarlos sin commit" },
-      { value: "base", label: `Commit en ${base}` },
-      { value: "branch", label: `Commit en una rama nueva, ${branch}`, hint: `${base} queda como está` },
-      { value: "pr", label: "Commit en una rama nueva, push y PR", hint: `contra ${base}` },
+      { value: "pr", label: "En un PR nuevo", hint: `recomendado · parte de origin/${base}, no toca tu copia` },
+      { value: "here", label: "En tu copia, sin commit", hint: "los revisas con git diff y haces commit tú" },
     ],
   });
-  return isCancel(answer) ? "leave" : answer;
+  return isCancel(answer) ? null : answer;
 }

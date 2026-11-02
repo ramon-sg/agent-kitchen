@@ -141,4 +141,11 @@ export const es: Catalog = {
     if (why === "leave") return wrote ? "No corrí ningún paso; solo guardé qué piezas usa el repo." : "No se cambió nada.";
     return wrote ? "No elegiste pasos; solo guardé qué piezas usa el repo." : "No elegiste nada; no se cambió nada.";
   },
+  cloning: (base) => `Trabajo en una copia temporal de origin/${base}; tu copia no se toca.`,
+  changes: "Cambios del PR:",
+  noChanges: "No cambió ningún archivo: no hay PR que abrir.",
+  prNotOpened: (why, clone) => {
+    const reason = { step: "No abrí el PR porque algún paso falló.", install: "No abrí el PR porque falló el install.", git: "" }[why];
+    return `${reason === "" ? "" : `${reason} `}Los cambios quedan en la copia temporal ${clone}; bórrala con rm -rf cuando termines.`;
+  },
 };

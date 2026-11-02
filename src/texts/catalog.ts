@@ -37,7 +37,7 @@ export interface Catalog {
   suggested: (dryRun: boolean) => string;
   /** The last line when every step worked or some failed. */
   summary: (failed: string[]) => string;
-  /** What is left to do by hand after the steps, without --commit; with the manager if its install failed. */
+  /** What is left to do by hand after the steps, in the checkout; with the manager if its install failed. */
   next: (failedInstall: string | null) => string;
   /** A new piece left out because no one was asked about it. */
   undecided: (names: string[]) => string;
@@ -47,4 +47,12 @@ export interface Catalog {
   saved: (file: string, commits: boolean) => string;
   /** The closing line when no step ran: the person left, or picked none. */
   noSteps: (why: "leave" | "none", wrote: boolean) => string;
+  /** With --pr, before the clone: from which branch of origin. */
+  cloning: (base: string) => string;
+  /** With --pr, the heading of the files that go in the PR. */
+  changes: string;
+  /** With --pr, nothing changed. */
+  noChanges: string;
+  /** With --pr, why no PR was opened and where the changes stay. */
+  prNotOpened: (why: "step" | "install" | "git", clone: string) => string;
 }

@@ -24,18 +24,20 @@ const HANDED_OVER = "AGENT_KITCHEN_HANDED_OVER";
 
 /** Usage text. */
 const USAGE = `Uso:
-  agent-kitchen apply [--yes | --dry-run] [--commit] [--verbose] [--skip <pieza>,...]
-  agent-kitchen apply --pieces [--commit]
+  agent-kitchen apply [--yes | --dry-run] [--pr | --here] [--verbose] [--skip <pieza>,...]
+  agent-kitchen apply --pieces [--pr | --here]
   agent-kitchen doctor
 
 agent-kitchen revisa cada pieza de las herramientas de agentes del repo (${pieceNames().join(", ")}),
 muestra qué tiene el repo y la última versión de cada una, y apply ofrece instalar lo que falta
 y actualizar lo que está atrasado. En una terminal pregunta una vez: hacer todo lo sugerido,
 o elegir los pasos y las skills. --yes hace lo sugerido sin preguntar; sin terminal solo lo
-muestra. --verbose muestra la salida de cada herramienta. --commit exige el repo sin cambios
-y en la rama base; al final instala si cambió package.json y pregunta si dejar los cambios,
-commitearlos en la base, en una rama nueva, o en una rama nueva con push y PR (con --yes,
-esto último). apply --pieces elige qué piezas usa el repo y lo guarda en .agents/kitchen.json
+muestra. --verbose muestra la salida de cada herramienta.
+--pr trabaja en una copia temporal de origin/<base> recién bajada, sin tocar tu copia: instala
+las dependencias, hace el commit, sube una rama nueva a origin y abre un PR en draft. --here
+trabaja en tu copia y deja los cambios sin commit; si los pasos cambiaron package.json, corre
+el install. En una terminal, sin ninguna de las dos, pregunta; con --yes o sin terminal, usa
+--here. apply --pieces elige qué piezas usa el repo y lo guarda en .agents/kitchen.json
 (en una terminal, sin --yes ni --dry-run). Córrelo en la copia principal del
 repo, desde tu terminal. Sin subcomando hace lo mismo que apply, por ahora.
 
@@ -86,7 +88,7 @@ async function main(argv: string[]): Promise<number> {
   const { values, positionals } = parseArgs({
     args: argv,
     allowPositionals: true,
-    options: { yes: { type: "boolean" }, "dry-run": { type: "boolean" }, commit: { type: "boolean" }, verbose: { type: "boolean", short: "v" }, skip: { type: "string" }, pieces: { type: "boolean" }, help: { type: "boolean", short: "h" }, version: { type: "boolean" } },
+    options: { yes: { type: "boolean" }, "dry-run": { type: "boolean" }, commit: { type: "boolean" }, pr: { type: "boolean" }, here: { type: "boolean" }, verbose: { type: "boolean", short: "v" }, skip: { type: "string" }, pieces: { type: "boolean" }, help: { type: "boolean", short: "h" }, version: { type: "boolean" } },
   });
   if (values.help === true) {
     out.stdout(`${USAGE}\n`);
@@ -102,12 +104,13 @@ async function main(argv: string[]): Promise<number> {
   const [command, ...rest] = positionals;
   if (rest.length > 0 || (command !== undefined && command !== "doctor" && command !== "apply")) throw new UsageError(`no existe el comando ${positionals.join(" ")}.`);
   if (command === "doctor") {
-    if (values.yes !== undefined || values["dry-run"] !== undefined || values.skip !== undefined || values.verbose !== undefined || values.commit !== undefined || values.pieces !== undefined) throw new UsageError("doctor no lleva opciones.");
+    if (values.yes !== undefined || values["dry-run"] !== undefined || values.skip !== undefined || values.verbose !== undefined || values.commit !== undefined || values.pr !== undefined || values.here !== undefined || values.pieces !== undefined) throw new UsageError("doctor no lleva opciones.");
     return doctor(process.cwd(), out);
   }
+  if (values.commit !== undefined) throw new UsageError("--commit ya no existe: usa --pr para abrir un PR desde una copia de origin, o --here para dejar los cambios sin commit en tu copia.");
   if (command === undefined) out.stderr("agent-kitchen: usa 'agent-kitchen apply'; sin subcomando dejará de instalar en una versión mayor.\n");
   const skip = (values.skip ?? "").split(",").map((name) => name.trim()).filter((name) => name !== "");
-  return sync({ cwd: process.cwd(), yes: values.yes ?? false, dryRun: values["dry-run"] ?? false, verbose: values.verbose ?? false, skip, commit: values.commit ?? false, pieces: values.pieces ?? false }, out);
+  return sync({ cwd: process.cwd(), yes: values.yes ?? false, dryRun: values["dry-run"] ?? false, verbose: values.verbose ?? false, skip, pr: values.pr ?? false, here: values.here ?? false, pieces: values.pieces ?? false }, out);
 }
 
 try {
