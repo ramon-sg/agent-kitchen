@@ -40,7 +40,7 @@ Con este cambio, la primera vez que una persona elige piezas en `apply`, esas de
 {
   "pieces": {
     "issue-flow": true,
-    "claude-cloud": true,
+    "agent-cloud-kit": true,
     "claude-repo-guard": false,
     "skills": true,
     "agents-md": true

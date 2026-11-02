@@ -118,7 +118,7 @@ function once<T>(key: string, lookup: () => Promise<T>): Promise<T> {
  * The latest version of a package on npm.
  * @param name - The package.
  * @returns The version, or null if npm cannot tell.
- * @example await npmLatest("@ramon-sg/claude-cloud") // "1.0.0"
+ * @example await npmLatest("agent-cloud-kit") // "1.0.0"
  */
 export function npmLatest(name: string): Promise<string | null> {
   return once(`npm:${name}`, async () => {
@@ -168,7 +168,7 @@ export function latestTag(repo: string): Promise<string | null> {
  * @param root - The repo.
  * @param spec - The package, as npx takes it.
  * @returns When it is done.
- * @example void download(root, "@ramon-sg/claude-cloud@1.0.0")
+ * @example void download(root, "agent-cloud-kit@1.0.0")
  */
 export function download(root: string, spec: string): Promise<void> {
   const known = downloads.get(spec);
@@ -190,7 +190,7 @@ export interface ToolRun {
  * @param root - The repo.
  * @param args - The package and its arguments.
  * @returns Whether it exited 0, and what it printed.
- * @example await runNpx(root, ["@ramon-sg/claude-cloud@1.0.0", "init"])
+ * @example await runNpx(root, ["agent-cloud-kit@1.0.0", "init"])
  */
 export async function runNpx(root: string, args: string[]): Promise<ToolRun> {
   const result = await run("npx", ["--yes", ...args], { cwd: root, inherit: verbose });

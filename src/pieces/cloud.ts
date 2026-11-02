@@ -1,19 +1,20 @@
 /**
- * @file Claude cloud sessions (`@ramon-sg/claude-cloud`). The repo's version is the one
+ * @file Claude cloud sessions (`agent-cloud-kit`). The repo's version is the one
  * `.claude/cloud.json` pins: the cloud machine runs exactly that one. Installing runs its
- * `init`; updating only moves that version (and a `$schema` pinned to a version), which is
- * how `claude-cloud` updates. Outside
- * the cloud its hook does nothing, so a repo nobody opens in the cloud loses nothing.
+ * `init`; updating moves that version (and a `$schema` pinned to a version) and then runs the
+ * new version's `init`, so the `cloud-ready` skill copied into the repo matches it (`init` is
+ * idempotent: it adds no second hook and keeps `.claude/cloud.json`). Outside the cloud its
+ * hook does nothing, so a repo nobody opens in the cloud loses nothing.
  */
 import type { Check, PieceStatus, Step } from "../piece.js";
 import { readJson, writeJson } from "../repo.js";
 import { compareVersions, isRelease, npmLatest, runNpx } from "../tools.js";
 
 /** The piece's name, as `--skip` takes it. */
-export const NAME = "claude-cloud";
+export const NAME = "agent-cloud-kit";
 
 /** The package on npm. */
-export const PACKAGE = "@ramon-sg/claude-cloud";
+export const PACKAGE = "agent-cloud-kit";
 
 /** Its config in the repo, which pins its version. */
 const CONFIG = ".claude/cloud.json";
@@ -45,7 +46,7 @@ function stepFor(config: Record<string, unknown> | null, latest: string | null):
       run: async (context) => {
         const run = await runNpx(context.root, [spec, "init"]);
         if (run.ok) return true;
-        context.fail(`claude-cloud init falló; corre 'npx ${spec} init'.`, run.output);
+        context.fail(`agent-cloud-kit init falló; corre 'npx ${spec} init'.`, run.output);
         return false;
       },
     };
@@ -54,19 +55,23 @@ function stepFor(config: Record<string, unknown> | null, latest: string | null):
   return {
     piece: NAME,
     checked: true,
-    downloads: [],
+    downloads: [`${PACKAGE}@${latest}`],
     text: { kind: "cloud-update", from: version, to: latest, config: CONFIG },
     run: async (context) => {
       const current = readJson(context.root, CONFIG) ?? {};
-      const schema = typeof current.$schema === "string" ? current.$schema.replace(/@ramon-sg\/claude-cloud@[^/]+\//, `${PACKAGE}@${latest}/`) : undefined;
+      const schema = typeof current.$schema === "string" ? current.$schema.replace(/\/agent-cloud-kit@[^/]+\//, `/${PACKAGE}@${latest}/`) : undefined;
       writeJson(context.root, CONFIG, { ...current, ...(schema === undefined ? {} : { $schema: schema }), version: latest });
-      return true;
+      const spec = `${PACKAGE}@${latest}`;
+      const run = await runNpx(context.root, [spec, "init"]);
+      if (run.ok) return true;
+      context.fail(`agent-cloud-kit init falló; corre 'npx ${spec} init'.`, run.output);
+      return false;
     },
   };
 }
 
 /**
- * What the repo has of claude-cloud, and the step it needs.
+ * What the repo has of agent-cloud-kit, and the step it needs.
  * @param root - The repo.
  * @returns The piece's status.
  * @example (await cloudStatus(root)).state // "1.0.0, al día"

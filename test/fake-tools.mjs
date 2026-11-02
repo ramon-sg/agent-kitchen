@@ -10,7 +10,7 @@
 //    .agents/flow.json if missing, and prints its --json with FAKE_FLOW_KEPT as kept; or
 //    prints FAKE_FLOW_APPLY_OUT instead, or FAKE_FLOW_APPLY_ERROR on stderr and exits 1.
 //    Before 0.3.0 it does not know apply.
-//  - claude-cloud init writes .claude/cloud.json at its version.
+//  - agent-cloud-kit init writes .claude/cloud.json at its version.
 //  - claude-repo-guard, like the real one, installs with apply from 0.5.0 (and on main) and with
 //    install before; the other name fails as the real one does. It writes its manifest at the
 //    tag's version, or prints FAKE_GUARD_ERROR on stderr and exits 1; doctor --json prints
@@ -115,9 +115,10 @@ if (spec.startsWith("@ramon-sg/issue-flow@")) {
   }
 } else if (spec.startsWith("@ramon-sg/github-rest@") && command === "pr" && rest[0] === "create") {
   process.stdout.write("https://github.com/o/r/pull/7\n");
-} else if (spec.startsWith("@ramon-sg/claude-cloud@") && command === "init") {
+} else if (spec.startsWith("agent-cloud-kit@") && command === "init") {
   const version = spec.split("@").at(-1);
-  writeJson(join(cwd, ".claude", "cloud.json"), { version: version === "1" ? "1.0.0" : version });
+  // Idempotent like the real one: it does not overwrite an existing config.
+  if (!existsSync(join(cwd, ".claude", "cloud.json"))) writeJson(join(cwd, ".claude", "cloud.json"), { version: version === "1" ? "1.0.0" : version });
 } else if (spec.startsWith("github:ramon-sg/claude-repo-guard")) {
   const version = spec.includes("#v") ? spec.split("#v")[1] : null;
   const [major, minor] = (version ?? "9.9.9").split(".").map(Number);

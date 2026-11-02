@@ -14,7 +14,7 @@ const npm = (version) => JSON.stringify({ ...NPM, [FLOW]: version });
 const deps = (ranges) => JSON.stringify(Object.fromEntries(Object.entries(ranges).map(([version, range]) => [`${FLOW}@${version}`, { [REST]: range }])));
 
 // Every piece but the flow, so only its steps run.
-const ONLY = ["--skip", "skills-manager,claude-cloud,claude-repo-guard,skills,agents-md"];
+const ONLY = ["--skip", "skills-manager,agent-cloud-kit,claude-repo-guard,skills,agents-md"];
 
 // A repo with the flow and github-rest at these versions.
 function repoWith(flow, rest) {

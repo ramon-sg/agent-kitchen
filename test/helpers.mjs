@@ -16,7 +16,7 @@ const GIT_ENV = { GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@t", GIT_COMMITTER_N
 // The latest of everything on npm, unless a test says otherwise.
 export { GIT_ENV };
 
-export const NPM = { "@ramon-sg/issue-flow": "0.2.0", "@ramon-sg/claude-cloud": "1.1.0" };
+export const NPM = { "@ramon-sg/issue-flow": "0.2.0", "agent-cloud-kit": "1.1.0" };
 
 // The rule agent-kitchen writes into AGENTS.md (src/pieces/agents-md.ts), copied as a literal on
 // purpose: the line is a contract that other agents read, not a value to derive.
@@ -109,7 +109,7 @@ export function makeRepo({ tags = { "ramon-sg/claude-repo-guard": ["0.1.0", "0.2
 }
 
 // A repo as agent-kitchen leaves it at the given versions: the flow, its skills and the general
-// ones, claude-cloud, claude-repo-guard (with the flow's options) and the rule in AGENTS.md.
+// ones, agent-cloud-kit, claude-repo-guard (with the flow's options) and the rule in AGENTS.md.
 export function installedRepo({ flow = "0.2.0", cloud = "1.1.0", guard = "0.2.0", general = "v0.2.0", tags } = {}) {
   const repo = makeRepo(tags === undefined ? {} : { tags });
   repo.write("package.json", { devDependencies: { "@ramon-sg/issue-flow": flow, "@ramon-sg/github-rest": "0.2.1", "@ramon-sg/skills-manager": "1.2.0" } });

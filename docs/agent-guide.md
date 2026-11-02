@@ -26,8 +26,11 @@ Referencia para un agente que trabaja en un repo preparado con `agent-kitchen`. 
 | `.agents/skills.json` | `skills-manager` | Manifest: qué skills se quieren y de dónde (`catalog`, `plugin`, `repo`, `local`), con el `ref` de cada catálogo |
 | `.agents/skills.lock.json` | `skills-manager` | Lock: tag, commit, hash y archivos editables de cada skill. No se edita a mano |
 | `.agents/skills/<nombre>/` | `skills-manager` | Las skills copiadas. Se commitean |
-| `.claude/settings.json` | `issue-flow apply` (`init` antes de 0.3.0), `claude-cloud init`, `claude-repo-guard apply`, `skills-manager` | Hooks `SessionStart`, `WorktreeCreate`, `WorktreeRemove`; sandbox; dominios permitidos; `enabledPlugins` en `false` para plugins copiados |
-| `.claude/cloud.json` | `claude-cloud init`, editable | La versión exacta de `@ramon-sg/claude-cloud`, herramientas, paquetes apt y pasos de setup de la nube |
+| `.claude/settings.json` | `issue-flow apply` (`init` antes de 0.3.0), `agent-cloud-kit init`, `claude-repo-guard apply`, `skills-manager` | Hooks `SessionStart`, `WorktreeCreate`, `WorktreeRemove`; sandbox; dominios permitidos; `enabledPlugins` en `false` para plugins copiados |
+| `.claude/cloud.json` | `agent-cloud-kit init`, editable | La versión exacta de `agent-cloud-kit`, herramientas, paquetes apt y pasos de setup de la nube |
+| `.agents/skills/cloud-ready/` | `agent-cloud-kit init` | La skill `cloud-ready`, copiada; `.claude/skills/cloud-ready` apunta a ella. `agent-kitchen apply` la deja en la versión de `.claude/cloud.json` |
+| `docs/agent-cloud.md` | `agent-cloud-kit prepare` | Cómo está preparado el repo para la nube de Claude |
+| `.claude/cloud-notes.md` | `agent-cloud-kit prepare` | Notas de lo que la nube necesita del repo |
 | `.claude/repo-guard.config.json` | `agent-kitchen` y el usuario | Opciones del guard; tras editarlo se vuelve a correr `apply` |
 | `.claude/repo-guard.manifest.json` | `claude-repo-guard apply` | Lo que agregó la instalación, para desinstalar exacto. Aquí lee `agent-kitchen` la versión |
 | `.claude/repo-guard.auto-mode.json` | `claude-repo-guard apply` | Contexto del clasificador del modo auto, cargado por `claude:auto` |
@@ -48,7 +51,7 @@ El sandbox de `claude-repo-guard` no deja escribir `.claude/settings.json`, `.cl
 | Skills del flujo | `ref` del catálogo `ramon-sg/issue-flow` en `.agents/skills.json` | Siempre en la misma tag que la CLI, porque la llaman |
 | Skills generales | El lock, una tag por skill | `skills-manager update <nombre>` |
 | `skills-manager` | La exacta de `package.json`; si no, la de `node_modules`; si no, el rango (salvo `workspace:`); si no, la última 1.x | `agent-kitchen apply` la sube al mínimo que necesita (1.2.0); más arriba, npm |
-| `claude-cloud` | `.claude/cloud.json` | Cambiar la versión fijada y commitear |
+| `agent-cloud-kit` | `.claude/cloud.json` | `agent-kitchen apply` mueve la versión fijada y corre `npx agent-cloud-kit@<versión> init`, que deja la skill `cloud-ready` en esa versión |
 | `claude-repo-guard` | `.claude/repo-guard.manifest.json` | `npx github:ramon-sg/claude-repo-guard#vX.Y.Z apply` |
 
 `npx agent-kitchen apply` hace todo lo anterior en orden; `npx agent-kitchen doctor` lo revisa sin cambiar nada y sale con 1 si algo falla. Si los pasos cambiaron `package.json`, `apply` corre el install del gestor de paquetes al final. Con `--pr`, `apply` trabaja en un clon temporal de `origin/<base>`, sin tocar el checkout: instala, commitea con los hooks del repo, sube la rama `chore/agent-kitchen-apply-<fecha>` a origin sin crearla en local y abre el PR en draft. Con `--here`, trabaja en el checkout y deja los cambios sin commit. En una terminal, sin ninguna, pregunta; con `--yes` o sin terminal, usa `--here`.
@@ -186,7 +189,8 @@ Cada una lleva su propia tag en el lock.
 
 ## En la nube de Claude
 
-- `CLAUDE_CODE_REMOTE=true` indica la nube. El hook `SessionStart` de `issue-flow` llama a `claude-cloud session`.
+- `CLAUDE_CODE_REMOTE=true` indica la nube. El hook `SessionStart` de `issue-flow` llama a `agent-cloud-kit session`.
+- `npx agent-cloud-kit prepare` deja el repo listo para la nube: escribe `docs/agent-cloud.md` y `.claude/cloud-notes.md`. El paquete no impone tests.
 - El proxy bloquea GraphQL de GitHub y las releases de GitHub. Todo va por REST.
 - No hay `gh pr ready`, `gh pr merge` ni resolver hilos: las skills se detienen y lo dicen.
 - Hay un solo checkout: `start-issue` usa `--here`.

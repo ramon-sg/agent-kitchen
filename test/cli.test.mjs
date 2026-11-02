@@ -37,7 +37,7 @@ test("apply --yes installs with the same calls as the bare command did", () => {
 
 test("a newer agent-kitchen gets apply too, and the bare command's notice is left to it", () => {
   const repo = makeRepo();
-  const npm = JSON.stringify({ "agent-kitchen": "9.0.0", "@ramon-sg/issue-flow": "0.2.0", "@ramon-sg/claude-cloud": "1.1.0" });
+  const npm = JSON.stringify({ "agent-kitchen": "9.0.0", "@ramon-sg/issue-flow": "0.2.0", "agent-cloud-kit": "1.1.0" });
 
   const applied = repo.cli(["apply", "--dry-run"], { env: { FAKE_NPM: npm } });
   const appliedCalls = repo.calls();

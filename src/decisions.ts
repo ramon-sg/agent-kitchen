@@ -54,7 +54,7 @@ export function readDecisions(root: string): Saved | null {
  * The decidable pieces with no decision yet.
  * @param saved - What was read, or null if there is no file.
  * @returns Their names; all of them without a file.
- * @example undecided(null) // ["issue-flow", "claude-cloud", ...]
+ * @example undecided(null) // ["issue-flow", "agent-cloud-kit", ...]
  */
 export function undecided(saved: Saved | null): string[] {
   return DECIDABLE.filter((name) => saved?.pieces[name] === undefined);

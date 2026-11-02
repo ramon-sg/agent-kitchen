@@ -1,6 +1,6 @@
 /**
  * @file What agent-kitchen knows of each piece it manages, and the names they share. A piece
- * (the version of skills-manager, the issue flow, claude-cloud, claude-repo-guard, the
+ * (the version of skills-manager, the issue flow, agent-cloud-kit, claude-repo-guard, the
  * skills, the rule in AGENTS.md) tells what the repo has and the steps that would install or
  * update it; agent-kitchen shows them, lets the person pick, and runs the picked ones in
  * order. Every step runs the piece's own tool, which owns its files: agent-kitchen only

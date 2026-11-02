@@ -15,7 +15,7 @@
 - Textos para personas en español; comentarios y JSDoc en inglés, con `@example`, como el resto de `src/`.
 - Sin dependencias nuevas.
 - Todas las preguntas van antes de cualquier paso. No se muestra un spinner antes de una pregunta.
-- Piezas decidibles: `issue-flow`, `claude-cloud`, `claude-repo-guard`, `skills`, `agents-md`. `skills-manager` no lleva decisión.
+- Piezas decidibles: `issue-flow`, `agent-cloud-kit`, `claude-repo-guard`, `skills`, `agents-md`. `skills-manager` no lleva decisión.
 - Archivo: `.agents/kitchen.json`, con la forma `{ "pieces": { "<pieza>": true|false } }`. Lo demás del archivo, incluidas las claves desconocidas dentro de `pieces`, se conserva al reescribirlo.
 - `--yes`, `--dry-run`, `--skip` y las corridas sin terminal nunca escriben el archivo.
 - Las piezas en `false` no se desinstalan.
@@ -104,10 +104,10 @@ Orden dentro de `sync`, después de `mainCheckout`:
   - **"a piece set to false is never offered, shown as the repo's decision, and --yes leaves it"**: repo vacío con `{"pieces":{"claude-repo-guard":false}}`; `--yes`. Ninguna llamada a `github:ramon-sg/claude-repo-guard…`; la salida coincide con `/claude-repo-guard +fuera por decisión del repo/` y con `/agent-kitchen apply --pieces/`.
   - **"issue-flow set to false acts like --skip issue-flow"**: mismas aserciones que el test existente "without the issue flow, the guard is not told about it…", pero con el archivo en vez de `--skip`.
   - **"--yes without the file does what it did and writes no file"**: repo vacío, `--yes`; `repo.exists(".agents/kitchen.json") === false`.
-  - **"--dry-run and --skip leave the file as it was"**: archivo escrito como texto; tras `--dry-run`, y tras `--yes --skip claude-cloud`, el texto es igual.
-  - **"with the file, a new piece is not installed without a terminal, and says so"**: repo vacío con `{"pieces":{"issue-flow":true,"claude-repo-guard":true,"skills":true,"agents-md":true}}`; `--yes`. Ninguna llamada a `@ramon-sg/claude-cloud…`; la salida coincide con `/Pieza nueva sin decisión: claude-cloud\. Corre agent-kitchen apply en una terminal/`; el archivo no cambia.
+  - **"--dry-run and --skip leave the file as it was"**: archivo escrito como texto; tras `--dry-run`, y tras `--yes --skip agent-cloud-kit`, el texto es igual.
+  - **"with the file, a new piece is not installed without a terminal, and says so"**: repo vacío con `{"pieces":{"issue-flow":true,"claude-repo-guard":true,"skills":true,"agents-md":true}}`; `--yes`. Ninguna llamada a `agent-cloud-kit…`; la salida coincide con `/Pieza nueva sin decisión: agent-cloud-kit\. Corre agent-kitchen apply en una terminal/`; el archivo no cambia.
   - **"with the file, an installed piece without a decision is updated with --yes"**: `installedRepo({ guard: "0.1.0" })` con un archivo sin `claude-repo-guard`; `--yes` llama al guard en `v0.2.0`.
-  - **"a non-boolean decision warns and counts as no decision"**: `{"pieces":{"claude-cloud":"no", …los otros true}}`; `--yes`; `r.err` coincide con `/"claude-cloud" no es true ni false/`; claude-cloud no se instala.
+  - **"a non-boolean decision warns and counts as no decision"**: `{"pieces":{"agent-cloud-kit":"no", …los otros true}}`; `--yes`; `r.err` coincide con `/"agent-cloud-kit" no es true ni false/`; agent-cloud-kit no se instala.
   - **"a broken decisions file stops apply and is left as it was"**: escribir `"{"`; sale 1, `r.err` coincide con `/\.agents\/kitchen\.json no es JSON válido/` y el texto no cambió.
 
 - [ ] **Step 2: Correrlos y ver que fallan**

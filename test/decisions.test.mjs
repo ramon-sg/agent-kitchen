@@ -13,20 +13,20 @@ test("decide: installed pieces and chosen steps are wanted, offered but unchosen
   const result = decide(
     [
       status("issue-flow", true),
-      status("claude-cloud", false, [step("claude-cloud")]),
+      status("agent-cloud-kit", false, [step("agent-cloud-kit")]),
       status("skills", false, [step("skills")]),
       status("agents-md", true, [step("agents-md")]),
       status("claude-repo-guard", true),
       status("skills-manager", true, [step("skills-manager")]),
     ],
-    [step("claude-cloud")],
+    [step("agent-cloud-kit")],
     { "claude-repo-guard": false },
   );
 
   assert.deepEqual(result, {
     "claude-repo-guard": false,
     "issue-flow": true,
-    "claude-cloud": true,
+    "agent-cloud-kit": true,
     skills: false,
     "agents-md": true,
   });
@@ -70,6 +70,6 @@ test("undecided and off", () => {
   assert.equal(DECIDABLE.length, 5);
   const saved = { pieces: { "issue-flow": true, skills: false }, raw: {}, warnings: [] };
   assert.deepEqual(off(saved), ["skills"]);
-  assert.deepEqual(undecided(saved), ["claude-cloud", "claude-repo-guard", "agents-md"]);
+  assert.deepEqual(undecided(saved), ["agent-cloud-kit", "claude-repo-guard", "agents-md"]);
   assert.deepEqual(off(null), []);
 });

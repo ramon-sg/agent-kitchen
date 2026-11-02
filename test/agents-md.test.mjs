@@ -7,7 +7,7 @@ import { readFileSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import { makeRepo, RULE } from "./helpers.mjs";
 
-const ONLY = ["--skip", "issue-flow,claude-cloud,claude-repo-guard,skills"];
+const ONLY = ["--skip", "issue-flow,agent-cloud-kit,claude-repo-guard,skills"];
 
 const text = (repo, path) => readFileSync(join(repo.main, path), "utf8");
 
@@ -50,7 +50,7 @@ test("the repo's own AGENTS.md and CLAUDE.md keep what they have; the rule and t
 test("in an empty repo the rule comes in the same run that installs the flow", () => {
   const repo = makeRepo();
 
-  const r = repo.cli(["--yes", "--skip", "claude-cloud,claude-repo-guard,skills"]);
+  const r = repo.cli(["--yes", "--skip", "agent-cloud-kit,claude-repo-guard,skills"]);
 
   assert.equal(r.status, 0, r.err);
   assert.equal(repo.exists("package.json"), true);
@@ -67,7 +67,7 @@ test("--skip agents-md leaves it out, and an unknown piece is still a usage erro
   assert.equal(r.status, 0, r.err);
   assert.equal(repo.exists("AGENTS.md"), false);
   assert.equal(unknown.status, 2);
-  assert.match(unknown.err, /no existe la pieza docker; son skills-manager, issue-flow, claude-cloud, claude-repo-guard, skills, agents-md/);
+  assert.match(unknown.err, /no existe la pieza docker; son skills-manager, issue-flow, agent-cloud-kit, claude-repo-guard, skills, agents-md/);
 });
 
 test("with the rule and the import there is nothing to do; without package.json the piece is not shown", () => {
@@ -78,7 +78,7 @@ test("with the rule and the import there is nothing to do; without package.json 
   const bare = makeRepo();
 
   const done = withRule.cli(["--yes", ...ONLY]);
-  const none = bare.cli(["--dry-run", "--skip", "issue-flow,claude-cloud,claude-repo-guard,skills"]);
+  const none = bare.cli(["--dry-run", "--skip", "issue-flow,agent-cloud-kit,claude-repo-guard,skills"]);
 
   assert.equal(done.status, 0, done.err);
   assert.match(done.out, /Todo al día/);
@@ -143,7 +143,7 @@ test("a CLAUDE.md that links to AGENTS.md gets no import, so AGENTS.md never imp
 test("when the flow fails to write package.json, the step writes nothing and says so", () => {
   const repo = makeRepo();
 
-  const r = repo.cli(["--yes", "--skip", "claude-cloud,claude-repo-guard,skills"], { env: { FAKE_FAIL: "issue-flow" } });
+  const r = repo.cli(["--yes", "--skip", "agent-cloud-kit,claude-repo-guard,skills"], { env: { FAKE_FAIL: "issue-flow" } });
 
   assert.equal(repo.exists("package.json"), false);
   assert.equal(repo.exists("AGENTS.md"), false);

@@ -17,7 +17,7 @@ test("the menu starts with the suggested steps ticked, in the steps' order", () 
   const steps = [
     { piece: "issue-flow", text: { kind: "flow-install", version: "0.3.0" }, checked: true, run: () => true },
     { piece: "skills", text: { kind: "skills-add", names: ["planning"] }, checked: false, fresh: true, run: () => true },
-    { piece: "claude-cloud", text: { kind: "cloud-update", from: null, to: "1.1.0", config: ".claude/cloud.json" }, checked: true, run: () => true },
+    { piece: "agent-cloud-kit", text: { kind: "cloud-update", from: null, to: "1.1.0", config: ".claude/cloud.json" }, checked: true, run: () => true },
   ];
 
   const { options, initialValues } = menuOptions(steps);
@@ -26,7 +26,7 @@ test("the menu starts with the suggested steps ticked, in the steps' order", () 
   assert.deepEqual(options.map((option) => option.label), [
     "Instalar issue-flow 0.3.0: config del flujo, hooks y scripts",
     "Agregar skills nuevas (1): planning (nueva)",
-    "Actualizar claude-cloud ? → 1.1.0 (la versión que fija .claude/cloud.json)",
+    "Actualizar agent-cloud-kit ? → 1.1.0 (la versión que fija .claude/cloud.json)",
   ]);
 });
 

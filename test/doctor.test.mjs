@@ -38,7 +38,7 @@ test("doctor names each problem, and only notes a newer release", () => {
   assert.match(r.out, /✗ issue-flow: WorktreeRemove hook: not in \.claude\/settings\.json/);
   assert.match(r.out, /✗ issue-flow: skills: close-pr en v0\.1\.0; issue-flow está en 0\.2\.0/);
   assert.match(r.out, /✗ skills: el disco, el lock y el manifiesto no coinciden/);
-  assert.match(r.out, /· claude-cloud: 1\.0\.0, hay 1\.1\.0/);
+  assert.match(r.out, /· agent-cloud-kit: 1\.0\.0, hay 1\.1\.0/);
   assert.match(r.out, /✗ claude-repo-guard: sandbox: bubblewrap is missing/);
   assert.doesNotMatch(r.out, /claude-repo-guard: auto/);
   assert.equal(/✗ claude-repo-guard: weakerNetworkIsolation/.test(r.out), process.platform === "darwin");

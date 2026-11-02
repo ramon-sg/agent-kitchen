@@ -5,7 +5,7 @@
  * draft (see pr-clone.ts), `--here` in the person's checkout, leaving the changes uncommitted.
  * In a terminal, without either, it asks; with `--yes` or without a terminal, or without an
  * origin, it works here. Here it warns if the checkout has changes or is behind its upstream.
- * Then it looks at each piece (the version of skills-manager, the issue flow, claude-cloud,
+ * Then it looks at each piece (the version of skills-manager, the issue flow, agent-cloud-kit,
  * claude-repo-guard, the skills, the rule in AGENTS.md) with
  * every lookup at once, shows what the repo has, and offers the steps that install what is
  * missing or update what is behind. In a terminal it asks first, all in one go: everything
@@ -38,7 +38,7 @@ import { issueFlowStatus, NAME as FLOW } from "../pieces/issue-flow.js";
 import { keepOwn, NAME as SKILLS, ownInPick, skillsStatus } from "../pieces/skills.js";
 import { agentsMdStatus, NAME as AGENTS_MD } from "../pieces/agents-md.js";
 import { NAME as SKILLS_MANAGER, skillsManagerStatus } from "../pieces/skills-manager.js";
-import { mainCheckout, packageManager, packageText } from "../repo.js";
+import { mainCheckout, packageManager, packageText, readJson } from "../repo.js";
 import { download, failedOutput, runInstall, setVerbose } from "../tools.js";
 import { commitLine, DECISIONS_LINE } from "../commit-texts.js";
 import { type Progress, progressFor } from "../progress.js";
@@ -65,7 +65,7 @@ const PIECES = [SKILLS_MANAGER, FLOW, CLOUD, GUARD, SKILLS, AGENTS_MD];
 /**
  * The names `--skip` takes.
  * @returns The pieces' names.
- * @example pieceNames() // ["skills-manager", "issue-flow", "claude-cloud", "claude-repo-guard", "skills", "agents-md"]
+ * @example pieceNames() // ["skills-manager", "issue-flow", "agent-cloud-kit", "claude-repo-guard", "skills", "agents-md"]
  */
 export function pieceNames(): string[] {
   return [...PIECES];
@@ -403,7 +403,11 @@ async function applyIn(work: Workplace, options: SyncOptions, out: Output): Prom
   const steps = statuses.flatMap((status) => status.steps);
   const progress = progressFor(out, options.verbose);
   // In a clone, a run that only wrote the decisions file still ends in a PR.
-  const endWithoutSteps = async (): Promise<number> => (work.kind === "pr" && wrote ? openPr(work, commitLabels([], true), [], progress, out) : 0);
+  const endWithoutSteps = async (): Promise<number> => {
+    if (work.kind === "pr") return wrote ? openPr(work, commitLabels([], true), [], progress, out) : 0;
+    if (!options.dryRun) printCloudNext(root, skip, out);
+    return 0;
+  };
   if (steps.length === 0) {
     if (saves) wrote = saveDecisions(root, saved, statuses, [], pr, out) || wrote;
     out.stdout(`${ui.upToDate}\n`);
@@ -437,7 +441,18 @@ async function applyIn(work: Workplace, options: SyncOptions, out: Output): Prom
   const installFailed = packageText(root) !== pkgBefore ? !(await install(root, progress, out)) : false;
   if (installFailed) failed.push(phrases({ kind: "install-deps", manager: packageManager(root) }).menu);
   out.stdout(`\n${ui.summary(failed)} ${ui.next(installFailed ? packageManager(root) : null)}\n`);
+  if (!options.dryRun) printCloudNext(root, skip, out);
   return failed.length === 0 ? 0 : 1;
+}
+
+/**
+ * Says what to run next for the cloud, if agent-cloud-kit is installed and was not left out.
+ * @param root - The repo.
+ * @param skip - The pieces left out.
+ * @param out - Where to write.
+ */
+function printCloudNext(root: string, skip: string[], out: Output): void {
+  if (!skip.includes(CLOUD) && readJson(root, ".claude/cloud.json") !== null) out.stdout(`${ui.cloudNext}\n`);
 }
 
 /**

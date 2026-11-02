@@ -60,14 +60,14 @@ export const es: Catalog = {
       done: `github-rest subido de ${from} a ${to}, el mínimo de issue-flow ${flow}`,
     }),
     "cloud-install": ({ version }) => ({
-      menu: `Instalar claude-cloud ${version ?? "1.x"}: prepara las sesiones en la nube de Claude`,
-      doing: `Instalando claude-cloud ${version ?? "1.x"}…`,
-      done: `claude-cloud ${version ?? "1.x"} instalado: prepara las sesiones en la nube de Claude`,
+      menu: `Instalar agent-cloud-kit ${version ?? "1.x"}: prepara las sesiones en la nube de Claude`,
+      doing: `Instalando agent-cloud-kit ${version ?? "1.x"}…`,
+      done: `agent-cloud-kit ${version ?? "1.x"} instalado: prepara las sesiones en la nube de Claude`,
     }),
     "cloud-update": ({ from, to, config }) => ({
-      menu: `Actualizar claude-cloud ${from ?? "?"} → ${to} (la versión que fija ${config})`,
-      doing: `Actualizando claude-cloud de ${from ?? "?"} a ${to}…`,
-      done: `claude-cloud actualizado de ${from ?? "?"} a ${to} en ${config}`,
+      menu: `Actualizar agent-cloud-kit ${from ?? "?"} → ${to} (la versión que fija ${config})`,
+      doing: `Actualizando agent-cloud-kit de ${from ?? "?"} a ${to}…`,
+      done: `agent-cloud-kit actualizado de ${from ?? "?"} a ${to} en ${config}`,
     }),
     "guard-install": ({ version }) => ({
       menu: `Instalar claude-repo-guard ${version ?? "(main)"}: modo auto con sandbox, y un documento de qué protege`,
@@ -134,6 +134,7 @@ export const es: Catalog = {
   suggested: (dryRun) => `Pasos sugeridos${dryRun ? "" : " (para hacerlos, corre agent-kitchen apply en una terminal, o con --yes)"}:`,
   summary: (failed) => (failed.length === 0 ? "Listo." : `Terminó, pero fallaron: ${failed.join("; ")}.`),
   next: (failedInstall) => `Falta: ${failedInstall === null ? "" : `corre '${failedInstall} install', `}revisa el diff y haz commit.`,
+  cloudNext: "Siguiente paso para la nube: npx agent-cloud-kit prepare",
   undecided: (names) => `Pieza nueva sin decisión: ${list(names)}. Corre agent-kitchen apply en una terminal para elegir.`,
   ownSkillsKept: (names) => `Se dejan fuera las skills que el repo ya tiene como propias: ${list(names)}. Para reemplazarlas, corre agent-kitchen apply en una terminal.`,
   saved: (file, commits) => `Guardé qué piezas usa el repo en ${file}${commits ? "" : "; commitéalo"}.`,

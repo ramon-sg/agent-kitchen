@@ -1,6 +1,6 @@
 // Tests of the main command, `agent-kitchen`, on real checkouts: what it shows and offers for
 // each piece, the order it runs the steps in with --yes, what it writes itself (the guard's
-// options, the version of claude-cloud, the flow catalog's tag) and what it leaves to each
+// options, the version of agent-cloud-kit, the flow catalog's tag) and what it leaves to each
 // tool, through the fakes of fake-tools.mjs.
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -19,7 +19,7 @@ test("--dry-run on an empty repo shows the four pieces and the steps that instal
   assert.match(r.out, /issue-flow +no instalado/);
   assert.match(r.out, /claude-repo-guard +no instalado/);
   assert.match(r.out, /\[x\] Instalar issue-flow 0\.2\.0: /);
-  assert.match(r.out, /\[x\] Instalar claude-cloud 1\.1\.0: /);
+  assert.match(r.out, /\[x\] Instalar agent-cloud-kit 1\.1\.0: /);
   assert.match(r.out, /\[x\] Instalar claude-repo-guard 0\.2\.0: /);
   assert.match(r.out, /\[x\] Instalar 4 skills de ramon-sg\/issue-flow y ramon-sg\/agent-skills/);
   assert.deepEqual(repo.calls(), []);
@@ -34,7 +34,7 @@ test("--yes on an empty repo installs everything in order, each piece with its o
   assert.equal(r.status, 0, r.err);
   assert.deepEqual(repo.calls(), [
     ["@ramon-sg/issue-flow@0.2.0", "init", "--yes"],
-    ["@ramon-sg/claude-cloud@1.1.0", "init"],
+    ["agent-cloud-kit@1.1.0", "init"],
     ["github:ramon-sg/claude-repo-guard#v0.2.0", "install", "--yes"],
     ["@ramon-sg/skills-manager@1.2.0", "init", "--catalog", "ramon-sg/issue-flow#v0.2.0", "--catalog", "ramon-sg/agent-skills", "--select", ALL_SKILLS],
   ]);
@@ -66,7 +66,7 @@ test("in the checkout, steps that leave package.json as it was do not install, e
 test("in the checkout, a failed install is a failure and is left to do by hand", () => {
   const repo = makeRepo();
 
-  const r = repo.cli(["--yes", "--skip", "claude-cloud,claude-repo-guard,skills"], { env: { FAKE_FAIL: "install" } });
+  const r = repo.cli(["--yes", "--skip", "agent-cloud-kit,claude-repo-guard,skills"], { env: { FAKE_FAIL: "install" } });
 
   assert.equal(r.status, 1);
   assert.match(r.out, /^✗ Falló: Instalar las dependencias con npm \(\d+,\d s\)$/m);
@@ -78,8 +78,8 @@ test("the tools' output is hidden unless a step fails, and shown with --verbose"
   const quiet = makeRepo();
   const loud = makeRepo();
 
-  const r = quiet.cli(["--yes", "--skip", "claude-cloud,claude-repo-guard,skills"], { env: { FAKE_SAY: "salida de la herramienta" } });
-  const v = loud.cli(["--yes", "--verbose", "--skip", "claude-cloud,claude-repo-guard,skills"], { env: { FAKE_SAY: "salida de la herramienta" } });
+  const r = quiet.cli(["--yes", "--skip", "agent-cloud-kit,claude-repo-guard,skills"], { env: { FAKE_SAY: "salida de la herramienta" } });
+  const v = loud.cli(["--yes", "--verbose", "--skip", "agent-cloud-kit,claude-repo-guard,skills"], { env: { FAKE_SAY: "salida de la herramienta" } });
 
   assert.equal(r.status, 0, r.err);
   assert.doesNotMatch(`${r.out}${r.err}`, /salida de la herramienta/);
@@ -91,7 +91,7 @@ test("the repo's own skills are left out with --yes, and the rest are installed"
   const repo = makeRepo();
   repo.write(".agents/skills/planning/SKILL.md", "propia");
 
-  const r = repo.cli(["--yes", "--skip", "claude-cloud,claude-repo-guard"]);
+  const r = repo.cli(["--yes", "--skip", "agent-cloud-kit,claude-repo-guard"]);
 
   assert.equal(r.status, 0, r.err);
   assert.match(r.out, /Se dejan fuera las skills que el repo ya tiene como propias: planning/);
@@ -121,7 +121,7 @@ test("a repo at the latest of everything has nothing to do, and asks skills-mana
   assert.deepEqual(repo.allCalls(), [["@ramon-sg/skills-manager@1.2.0", "add", "--candidates", "--catalog", "ramon-sg/issue-flow#v0.2.0", "--catalog", "ramon-sg/agent-skills"]]);
 });
 
-test("--yes updates each piece behind: the flow and its skills, claude-cloud's pin, the guard, the general skills", () => {
+test("--yes updates each piece behind: the flow and its skills, agent-cloud-kit's pin, the guard, the general skills", () => {
   const repo = installedRepo({ flow: "0.1.0", cloud: "1.0.0", guard: "0.1.0", general: "v0.1.0" });
 
   const r = repo.cli(["--yes"]);
@@ -131,6 +131,7 @@ test("--yes updates each piece behind: the flow and its skills, claude-cloud's p
     ["@ramon-sg/issue-flow@0.2.0", "upgrade"],
     ["@ramon-sg/skills-manager@1.2.0", "update", "close-pr"],
     ["@ramon-sg/skills-manager@1.2.0", "update", "pr-review-comments"],
+    ["agent-cloud-kit@1.1.0", "init"],
     ["github:ramon-sg/claude-repo-guard#v0.2.0", "install", "--yes"],
     ["@ramon-sg/skills-manager@1.2.0", "update", "code-audit"],
     ["@ramon-sg/skills-manager@1.2.0", "update", "test-audit"],
@@ -188,20 +189,20 @@ test("a guard at the latest without the flow's options gets them, at its own ver
 test("a step that fails does not stop the rest, says how to retry, and exits 1", () => {
   const repo = makeRepo();
 
-  const r = repo.cli(["--yes"], { env: { FAKE_FAIL: "claude-cloud" } });
+  const r = repo.cli(["--yes"], { env: { FAKE_FAIL: "agent-cloud-kit" } });
 
   assert.equal(r.status, 1);
-  assert.match(r.err, /claude-cloud init falló; corre 'npx @ramon-sg\/claude-cloud@1\.1\.0 init'/);
-  assert.match(r.err, /fake: claude-cloud failed/);
-  assert.match(r.out, /✗ Falló: Instalar claude-cloud/);
-  assert.deepEqual(repo.calls().map((args) => args[0]), ["@ramon-sg/issue-flow@0.2.0", "@ramon-sg/claude-cloud@1.1.0", "github:ramon-sg/claude-repo-guard#v0.2.0", "@ramon-sg/skills-manager@1.2.0"]);
-  assert.match(r.out, /fallaron: Instalar claude-cloud/);
+  assert.match(r.err, /agent-cloud-kit init falló; corre 'npx agent-cloud-kit@1\.1\.0 init'/);
+  assert.match(r.err, /fake: agent-cloud-kit failed/);
+  assert.match(r.out, /✗ Falló: Instalar agent-cloud-kit/);
+  assert.deepEqual(repo.calls().map((args) => args[0]), ["@ramon-sg/issue-flow@0.2.0", "agent-cloud-kit@1.1.0", "github:ramon-sg/claude-repo-guard#v0.2.0", "@ramon-sg/skills-manager@1.2.0"]);
+  assert.match(r.out, /fallaron: Instalar agent-cloud-kit/);
 });
 
 test("when issue-flow did not install, the skills step leaves the flow's skills out instead of failing", () => {
   const repo = makeRepo();
 
-  const r = repo.cli(["--yes", "--skip", "claude-cloud,claude-repo-guard"], { env: { FAKE_FAIL: "issue-flow@0.2.0 init" } });
+  const r = repo.cli(["--yes", "--skip", "agent-cloud-kit,claude-repo-guard"], { env: { FAKE_FAIL: "issue-flow@0.2.0 init" } });
 
   assert.equal(r.status, 1);
   assert.match(r.out, /sin las skills del flujo, porque issue-flow no está instalado/);
@@ -212,14 +213,14 @@ test("when issue-flow did not install, the skills step leaves the flow's skills 
 test("--skip leaves pieces out; an unknown piece is a usage error", () => {
   const repo = makeRepo();
 
-  const r = repo.cli(["--yes", "--skip", "claude-cloud,skills"]);
+  const r = repo.cli(["--yes", "--skip", "agent-cloud-kit,skills"]);
   const unknown = repo.cli(["--yes", "--skip", "docker"]);
 
   assert.equal(r.status, 0, r.err);
   assert.deepEqual(repo.calls().length, 0);
-  assert.doesNotMatch(r.out, /claude-cloud/);
+  assert.doesNotMatch(r.out, /agent-cloud-kit/);
   assert.equal(unknown.status, 2);
-  assert.match(unknown.err, /no existe la pieza docker; son skills-manager, issue-flow, claude-cloud, claude-repo-guard, skills/);
+  assert.match(unknown.err, /no existe la pieza docker; son skills-manager, issue-flow, agent-cloud-kit, claude-repo-guard, skills/);
 });
 
 test("when npm and GitHub cannot tell the latest, a piece is shown and not updated", () => {
@@ -272,7 +273,7 @@ test("when the flow is installed in this run, a guard already at the latest gets
   repo.write(".claude/repo-guard.manifest.json", { version: "0.2.0" });
   repo.write(".claude/repo-guard.config.json", { weakerNetworkIsolation: true });
 
-  const r = repo.cli(["--yes", "--skip", "claude-cloud,skills"]);
+  const r = repo.cli(["--yes", "--skip", "agent-cloud-kit,skills"]);
 
   assert.equal(r.status, 0, r.err);
   assert.match(repo.read(".claude/repo-guard.config.json").environment[0], /issue-flow is this repo's issue workflow/);
@@ -300,14 +301,46 @@ test("a flow version that is not an exact release is shown and left alone", () =
   assert.doesNotMatch(r.out, /\[x\] .*issue-flow/);
 });
 
-test("updating claude-cloud moves a $schema pinned to its version as well", () => {
+test("updating moves version and $schema of agent-cloud-kit", () => {
   const repo = installedRepo({ cloud: "1.0.0" });
-  repo.write(".claude/cloud.json", { $schema: "https://unpkg.com/@ramon-sg/claude-cloud@1.0.0/schema.json", version: "1.0.0", apt: ["jq"] });
+  repo.write(".claude/cloud.json", { $schema: "https://unpkg.com/agent-cloud-kit@1.0.0/schema.json", version: "1.0.0", apt: ["jq"] });
 
   const r = repo.cli(["--yes"]);
 
   assert.equal(r.status, 0, r.err);
-  assert.deepEqual(repo.read(".claude/cloud.json"), { $schema: "https://unpkg.com/@ramon-sg/claude-cloud@1.1.0/schema.json", version: "1.1.0", apt: ["jq"] });
+  assert.deepEqual(repo.read(".claude/cloud.json"), { $schema: "https://unpkg.com/agent-cloud-kit@1.1.0/schema.json", version: "1.1.0", apt: ["jq"] });
+});
+
+test("updating runs init of the new version, after moving the version", () => {
+  const repo = installedRepo({ cloud: "1.0.0" });
+
+  const r = repo.cli(["--yes", "--skip", "issue-flow,claude-repo-guard,skills"]);
+
+  assert.equal(r.status, 0, r.err);
+  assert.deepEqual(repo.calls(), [["agent-cloud-kit@1.1.0", "init"]]);
+  assert.equal(repo.read(".claude/cloud.json").version, "1.1.0");
+});
+
+test("a failing init after an update fails the step", () => {
+  const repo = installedRepo({ cloud: "1.0.0" });
+
+  const r = repo.cli(["--yes", "--skip", "issue-flow,claude-repo-guard,skills"], { env: { FAKE_FAIL: "agent-cloud-kit" } });
+
+  assert.equal(r.status, 1);
+  assert.match(r.err, /agent-cloud-kit init falló; corre 'npx agent-cloud-kit@1\.1\.0 init'/);
+});
+
+test("after apply with the piece installed, the next step is printed", () => {
+  const repo = installedRepo({ cloud: "1.0.0" });
+  const upToDate = installedRepo();
+
+  const r = repo.cli(["--yes"]);
+  const same = upToDate.cli(["--yes"]);
+  const skipped = installedRepo().cli(["--yes", "--skip", "agent-cloud-kit"]);
+
+  assert.match(r.out.trimEnd(), /Siguiente paso para la nube: npx agent-cloud-kit prepare$/);
+  assert.match(same.out.trimEnd(), /Siguiente paso para la nube: npx agent-cloud-kit prepare$/);
+  assert.doesNotMatch(skipped.out, /Siguiente paso para la nube/);
 });
 
 test("a general catalog that follows a branch is not offered as behind, and skills already in the lock are not new", () => {
@@ -341,7 +374,7 @@ test("the skills lock is where the manifest's paths.lock says", () => {
 
 test("when npm has a newer agent-kitchen it runs that one with the same arguments, and that one does not hand over again", () => {
   const repo = makeRepo();
-  const npm = JSON.stringify({ "agent-kitchen": "9.0.0", "@ramon-sg/issue-flow": "0.2.0", "@ramon-sg/claude-cloud": "1.1.0" });
+  const npm = JSON.stringify({ "agent-kitchen": "9.0.0", "@ramon-sg/issue-flow": "0.2.0", "agent-cloud-kit": "1.1.0" });
 
   const handed = repo.cli(["--dry-run", "--skip", "skills"], { env: { FAKE_NPM: npm } });
   const calls = repo.calls();
@@ -358,7 +391,7 @@ test("when npm has a newer agent-kitchen it runs that one with the same argument
 test("the guard updates with apply from 0.5.0 on, as the issue's repro: 0.5.0 → 0.5.1", () => {
   const repo = installedRepo({ guard: "0.5.0", tags: { "ramon-sg/claude-repo-guard": ["0.5.0", "0.5.1"], "ramon-sg/agent-skills": ["0.2.0"] } });
 
-  const r = repo.cli(["--yes", "--skip", "issue-flow,claude-cloud,skills"]);
+  const r = repo.cli(["--yes", "--skip", "issue-flow,agent-cloud-kit,skills"]);
 
   assert.equal(r.status, 0, r.err);
   assert.match(r.out, /✓ claude-repo-guard actualizado de 0\.5\.0 a 0\.5\.1/);
@@ -370,7 +403,7 @@ test("a guard before 0.5.0 still gets its options with install, at its own versi
   const repo = installedRepo({ guard: "0.4.1", tags: { "ramon-sg/claude-repo-guard": ["0.4.1"], "ramon-sg/agent-skills": ["0.2.0"] } });
   repo.write(".claude/repo-guard.config.json", {});
 
-  const r = repo.cli(["--yes", "--skip", "issue-flow,claude-cloud,skills"]);
+  const r = repo.cli(["--yes", "--skip", "issue-flow,agent-cloud-kit,skills"]);
 
   assert.equal(r.status, 0, r.err);
   assert.ok(repo.calls().some((args) => args.join(" ") === "github:ramon-sg/claude-repo-guard#v0.4.1 install --yes"));
@@ -379,7 +412,7 @@ test("a guard before 0.5.0 still gets its options with install, at its own versi
 test("when the guard fails, its own error is shown, without the sandbox hint", () => {
   const repo = installedRepo({ guard: "0.5.0", tags: { "ramon-sg/claude-repo-guard": ["0.5.0", "0.5.1"], "ramon-sg/agent-skills": ["0.2.0"] } });
 
-  const r = repo.cli(["--yes", "--skip", "issue-flow,claude-cloud,skills"], { env: { FAKE_GUARD_ERROR: "claude-repo-guard: .claude/settings.json no es JSON válido" } });
+  const r = repo.cli(["--yes", "--skip", "issue-flow,agent-cloud-kit,skills"], { env: { FAKE_GUARD_ERROR: "claude-repo-guard: .claude/settings.json no es JSON válido" } });
 
   assert.equal(r.status, 1);
   assert.match(r.err, /claude-repo-guard no se instaló; su error está abajo\. Para reintentar a mano: 'npx github:ramon-sg\/claude-repo-guard#v0\.5\.1 apply'/);
@@ -390,7 +423,7 @@ test("when the guard fails, its own error is shown, without the sandbox hint", (
 test("when the guard cannot write, the hint about Claude's sandbox is added to its error", () => {
   const repo = installedRepo({ guard: "0.5.0", tags: { "ramon-sg/claude-repo-guard": ["0.5.0", "0.5.1"], "ramon-sg/agent-skills": ["0.2.0"] } });
 
-  const r = repo.cli(["--yes", "--skip", "issue-flow,claude-cloud,skills"], { env: { FAKE_GUARD_ERROR: "claude-repo-guard: EPERM: operation not permitted, open '.claude/settings.json'" } });
+  const r = repo.cli(["--yes", "--skip", "issue-flow,agent-cloud-kit,skills"], { env: { FAKE_GUARD_ERROR: "claude-repo-guard: EPERM: operation not permitted, open '.claude/settings.json'" } });
 
   assert.equal(r.status, 1);
   assert.match(r.err, /no tuvo permiso para escribir en el repo\. Si corres agent-kitchen dentro de una sesión de Claude, su sandbox bloquea \.claude\/settings\.json; corre 'npx github:ramon-sg\/claude-repo-guard#v0\.5\.1 apply' desde tu terminal/);
@@ -417,7 +450,7 @@ test("a piece set to false is never offered, shown as the repo's decision, and -
 
 test("issue-flow set to false acts like --skip issue-flow", () => {
   const repo = makeRepo();
-  repo.write(".agents/kitchen.json", { pieces: { "issue-flow": false, "claude-cloud": true, "claude-repo-guard": true, skills: true, "agents-md": true } });
+  repo.write(".agents/kitchen.json", { pieces: { "issue-flow": false, "agent-cloud-kit": true, "claude-repo-guard": true, skills: true, "agents-md": true } });
 
   const general = JSON.stringify(CANDIDATES.filter((candidate) => candidate.catalog === "ramon-sg/agent-skills"));
 
@@ -447,7 +480,7 @@ test("--dry-run and --skip leave the file as it was", () => {
   assert.equal(dry.status, 0, dry.err);
   assert.equal(decisionsText(repo), text);
 
-  const skipped = repo.cli(["--yes", "--skip", "claude-cloud"]);
+  const skipped = repo.cli(["--yes", "--skip", "agent-cloud-kit"]);
   assert.equal(skipped.status, 0, skipped.err);
   assert.equal(decisionsText(repo), text);
 });
@@ -460,14 +493,14 @@ test("with the file, a new piece is not installed without a terminal, and says s
   const r = repo.cli(["--yes"]);
 
   assert.equal(r.status, 0, r.err);
-  assert.ok(!called(repo, "@ramon-sg/claude-cloud"));
-  assert.match(r.out, /Pieza nueva sin decisión: claude-cloud\. Corre agent-kitchen apply en una terminal/);
+  assert.ok(!called(repo, "agent-cloud-kit"));
+  assert.match(r.out, /Pieza nueva sin decisión: agent-cloud-kit\. Corre agent-kitchen apply en una terminal/);
   assert.equal(decisionsText(repo), text);
 });
 
 test("with the file, an installed piece without a decision is updated with --yes", () => {
   const repo = installedRepo({ guard: "0.1.0" });
-  repo.write(".agents/kitchen.json", { pieces: { "issue-flow": true, "claude-cloud": true, skills: true, "agents-md": true } });
+  repo.write(".agents/kitchen.json", { pieces: { "issue-flow": true, "agent-cloud-kit": true, skills: true, "agents-md": true } });
 
   const r = repo.cli(["--yes"]);
 
@@ -477,13 +510,13 @@ test("with the file, an installed piece without a decision is updated with --yes
 
 test("a non-boolean decision warns and counts as no decision", () => {
   const repo = makeRepo();
-  repo.write(".agents/kitchen.json", { pieces: { "issue-flow": true, "claude-cloud": "no", "claude-repo-guard": true, skills: true, "agents-md": true } });
+  repo.write(".agents/kitchen.json", { pieces: { "issue-flow": true, "agent-cloud-kit": "no", "claude-repo-guard": true, skills: true, "agents-md": true } });
 
   const r = repo.cli(["--yes"]);
 
   assert.equal(r.status, 0, r.err);
-  assert.match(r.err, /"claude-cloud" no es true ni false/);
-  assert.ok(!called(repo, "@ramon-sg/claude-cloud"));
+  assert.match(r.err, /"agent-cloud-kit" no es true ni false/);
+  assert.ok(!called(repo, "agent-cloud-kit"));
 });
 
 test("a broken decisions file stops apply and is left as it was", () => {

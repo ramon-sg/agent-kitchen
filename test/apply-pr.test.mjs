@@ -15,7 +15,7 @@ import { GIT_ENV, makeRepo } from "./helpers.mjs";
 Object.assign(process.env, GIT_ENV);
 
 /** Only the flow (and what follows it), so each run is short. */
-const ONLY_FLOW = ["--skip", "claude-cloud,claude-repo-guard,skills"];
+const ONLY_FLOW = ["--skip", "agent-cloud-kit,claude-repo-guard,skills"];
 
 /** The branch a run makes today. */
 function today() {
@@ -157,7 +157,7 @@ test("if the install fails, nothing is pushed and the clone is kept with its pat
 test("with a failed step, nothing is pushed and the clone is kept", () => {
   const repo = makeRepo({ origin: true });
 
-  const r = repo.cli(["--yes", "--pr", "--skip", "claude-repo-guard,skills"], { env: { FAKE_FAIL: "claude-cloud" } });
+  const r = repo.cli(["--yes", "--pr", "--skip", "claude-repo-guard,skills"], { env: { FAKE_FAIL: "agent-cloud-kit" } });
 
   assert.equal(r.status, 1);
   assert.doesNotMatch(remoteHeads(repo), /chore/);
@@ -168,7 +168,7 @@ test("with a failed step, nothing is pushed and the clone is kept", () => {
 test("with no file changed there is no PR", () => {
   const repo = makeRepo({ origin: true });
 
-  const r = repo.cli(["--yes", "--pr", "--skip", "claude-cloud,claude-repo-guard,skills,agents-md,skills-manager"], { env: { FAKE_FAIL: "issue-flow" } });
+  const r = repo.cli(["--yes", "--pr", "--skip", "agent-cloud-kit,claude-repo-guard,skills,agents-md,skills-manager"], { env: { FAKE_FAIL: "issue-flow" } });
 
   assert.equal(r.status, 1);
   assert.match(r.out, /no hay PR que abrir/);

@@ -8,7 +8,7 @@ Esta guía explica, en simple, las herramientas que `agent-kitchen` instala en u
 - **Cada issue tiene su rama, su carpeta y su PR:** `issue-flow` los crea al empezar y los borra cuando se mergea.
 - **Las skills le enseñan al agente cada paso:** crear una issue, empezarla, planificar, auditar, responder la revisión y mergear.
 - **Las barandas dejan trabajar al agente sin preguntar:** `claude-repo-guard` le permite escribir solo dentro de su carpeta.
-- **Lo mismo funciona en la nube:** `claude-cloud` prepara las sesiones de Claude en claude.ai con las herramientas del repo.
+- **Lo mismo funciona en la nube:** `agent-cloud-kit` prepara las sesiones de Claude en claude.ai con las herramientas del repo.
 - **El agente usa la versión instalada de cada biblioteca:** una línea en `AGENTS.md` le pide mirarla antes de escribir código.
 
 ## Las herramientas
@@ -20,7 +20,7 @@ Esta guía explica, en simple, las herramientas que `agent-kitchen` instala en u
 | `skills-manager` | Copia las skills al repo y fija su versión | [ramon-sg/skills-manager](https://github.com/ramon-sg/skills-manager) |
 | `agent-skills` | Catálogo de skills generales: planes, explicaciones y auditorías | [ramon-sg/agent-skills](https://github.com/ramon-sg/agent-skills) |
 | `claude-repo-guard` | Barandas: el agente no pide permiso y no sale de su carpeta | [ramon-sg/claude-repo-guard](https://github.com/ramon-sg/claude-repo-guard) |
-| `claude-cloud` | Prepara las sesiones de Claude en la nube | [ramon-sg/claude-cloud](https://github.com/ramon-sg/claude-cloud) |
+| `agent-cloud-kit` | Prepara las sesiones de Claude en la nube | [ramon-sg/agent-cloud-kit](https://github.com/ramon-sg/agent-cloud-kit) |
 | `github-rest` | Habla con GitHub sin GraphQL, que la nube bloquea | [ramon-sg/github-rest](https://github.com/ramon-sg/github-rest) |
 
 ## AGENTS.md: una línea, no un manual

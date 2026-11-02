@@ -33,7 +33,7 @@ export function processOutput(): Output {
  * Prints a warning on stderr with the program's name.
  * @param out - Where to write.
  * @param text - The warning.
- * @example warn(out, "claude-cloud init failed")
+ * @example warn(out, "agent-cloud-kit init failed")
  */
 export function warn(out: Output, text: string): void {
   out.stderr(`agent-kitchen: ${text}\n`);
