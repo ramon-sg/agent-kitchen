@@ -57,16 +57,15 @@ export function plainProgress(out: Output, options: { ticks: boolean; tickMs?: n
 }
 
 /**
- * How progress is shown: a spinner in a terminal, plain lines otherwise or when `plain` asks
- * for them. Only for the steps, after every question: a spinner shown before a question
- * leaves the second question deaf to the keyboard (@clack/prompts 1.8.1).
+ * How progress is shown: a spinner in a terminal, plain lines otherwise. Only for the steps,
+ * after every question: a spinner shown before a question leaves the second question deaf to
+ * the keyboard (@clack/prompts 1.8.1).
  * @param out - Where to write.
  * @param verbose - Whether the tools print on the terminal.
- * @param plain - Whether a question may come after the steps (`--commit`).
  * @returns The progress.
  */
-export function progressFor(out: Output, verbose: boolean, plain: boolean): Progress {
-  if (out.interactive && !verbose && !plain) {
+export function progressFor(out: Output, verbose: boolean): Progress {
+  if (out.interactive && !verbose) {
     const spin = spinner();
     let started = 0;
     return {

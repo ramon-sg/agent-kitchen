@@ -1,7 +1,11 @@
 /**
- * @file `agent-kitchen apply [--yes] [--dry-run] [--commit] [--verbose] [--skip <piece>,...]`: the one command
- * that changes the repo (and, for now, also the bare `agent-kitchen`).
- * It looks at each piece (the version of skills-manager, the issue flow, claude-cloud,
+ * @file `agent-kitchen apply [--yes] [--dry-run] [--pr | --here] [--verbose] [--skip <piece>,...]`:
+ * the one command that changes the repo (and, for now, also the bare `agent-kitchen`).
+ * First it settles where to work: `--pr` in a clone of `origin/<base>` that ends in a PR in
+ * draft (see pr-clone.ts), `--here` in the person's checkout, leaving the changes uncommitted.
+ * In a terminal, without either, it asks; with `--yes` or without a terminal, or without an
+ * origin, it works here. Here it warns if the checkout has changes or is behind its upstream.
+ * Then it looks at each piece (the version of skills-manager, the issue flow, claude-cloud,
  * claude-repo-guard, the skills, the rule in AGENTS.md) with
  * every lookup at once, shows what the repo has, and offers the steps that install what is
  * missing or update what is behind. In a terminal it asks first, all in one go: everything
@@ -11,11 +15,10 @@
  * flow's version), one line each, with the
  * tools' output only when one fails; one that fails does not stop the rest. With `--yes`
  * it does what is suggested without asking (and keeps the repo's own skills); without a
- * terminal it only shows the steps. Without `--commit`, it installs at the end if the steps
- * changed package.json. With `--commit` it first checks the repo is clean and on
- * its base branch, and at the end installs if package.json changed and asks what to do with
- * the changes (see git-finish.ts), also when the only change is the decisions file below;
- * the steps then show as plain lines, since a spinner before a question leaves it deaf.
+ * terminal it only shows the steps. Here, it installs at the end if the steps changed
+ * package.json. In the clone it always installs (the repo's hooks may need node_modules),
+ * commits, pushes and opens the PR, also when the only change is the decisions file below;
+ * if a step, the install or the commit fails, nothing is pushed and the clone is kept.
  * What the repo decided of each piece, in `.agents/kitchen.json`, is respected: a piece set to
  * false is left out as with `--skip`, and one with no decision is marked as new. Without
  * asking (`--yes` or no terminal), a new piece that is not installed is left out for the run.
@@ -25,8 +28,8 @@
  * uses, writes all of them to the file, and then goes on as usual.
  */
 import { DECIDABLE, decide, DECISIONS, off, readDecisions, type Saved, undecided, writeDecisions } from "../decisions.js";
-import { baseBranch, branchName, changedPaths, checkReady, finish } from "../git-finish.js";
-import { askFinish, askPath, askPieces, askReplace, askSkills, askSteps } from "../menu.js";
+import { behindUpstream, baseBranch, changedPaths, cloneFromOrigin, originUrl, publish, removeClone } from "../pr-clone.js";
+import { askPath, askPieces, askPlace, askReplace, askSkills, askSteps, type Place } from "../menu.js";
 import { KitError, type Output, UsageError, warn } from "../output.js";
 import type { Context, PieceStatus, Step } from "../piece.js";
 import { cloudStatus, NAME as CLOUD } from "../pieces/cloud.js";
@@ -48,7 +51,10 @@ export interface SyncOptions {
   dryRun: boolean;
   verbose: boolean;
   skip: string[];
-  commit: boolean;
+  /** Work in a clone of origin and open a PR. */
+  pr: boolean;
+  /** Work in the checkout, leaving the changes uncommitted. */
+  here: boolean;
   /** Ask which pieces the repo uses, save the answer, then go on as usual. */
   pieces: boolean;
 }
@@ -111,7 +117,7 @@ function printStatus(statuses: PieceStatus[], decidedOff: string[], out: Output)
  * @param saved - What was read, or null if there is no file.
  * @param statuses - What each piece found.
  * @param chosen - The steps the person picked.
- * @param commits - Whether `--commit` asks about the changes at the end.
+ * @param commits - Whether the run ends in a PR, so the file need not be committed by hand.
  * @param out - Where to write.
  * @returns True if the file was written.
  */
@@ -138,7 +144,7 @@ export function noStepsMessage(why: "leave" | "none", wrote: boolean): string {
 
 /**
  * The line that says the decisions were saved.
- * @param commits - Whether `--commit` asks about the changes at the end, so the file need not be committed by hand.
+ * @param commits - Whether the run ends in a PR, so the file need not be committed by hand.
  * @returns The line.
  */
 function savedMessage(commits: boolean): string {
@@ -146,7 +152,7 @@ function savedMessage(commits: boolean): string {
 }
 
 /**
- * What the commit of `--commit` lists: the steps that worked, and the decisions file if this
+ * What the commit of `--pr` lists: the steps that worked, and the decisions file if this
  * run wrote it, in the commit's texts (not the interface's).
  * @param done - The steps that worked.
  * @param wrote - Whether the decisions file was written in this run.
@@ -162,7 +168,7 @@ export function commitLabels(done: Pick<Step, "text">[], wrote: boolean): string
  * Asks which pieces the repo uses and writes the answer for every decidable piece.
  * @param root - The repo.
  * @param saved - What was read, or null if there is no file.
- * @param commits - Whether `--commit` asks about the changes at the end.
+ * @param commits - Whether the run ends in a PR.
  * @param out - Where to write.
  * @returns False if the person cancelled.
  */
@@ -283,29 +289,90 @@ async function runStep(root: string, step: Step, progress: Progress, out: Output
   return ok;
 }
 
+/** Where the run works: the checkout, or a clone of origin that ends in a PR. */
+type Workplace = { kind: "here"; root: string } | { kind: "pr"; root: string; repo: string; base: string; keep: boolean };
+
+/**
+ * Settles where to work: the flag, or the person's answer in a terminal, or the checkout.
+ * @param root - The repo.
+ * @param options - The options.
+ * @param out - Where to write and ask.
+ * @returns The place, or null if the person cancelled.
+ * @throws KitError with `--pr` and no origin.
+ */
+async function choosePlace(root: string, options: SyncOptions, out: Output): Promise<Place | null> {
+  if (options.pr) {
+    if (originUrl(root) === null) throw new KitError("--pr necesita un remoto origin, y este repo no tiene. Usa --here.");
+    return "pr";
+  }
+  if (options.here || options.yes || options.dryRun || !out.interactive || originUrl(root) === null) return "here";
+  return askPlace(baseBranch(root));
+}
+
+/**
+ * Warns about what the checkout already has before working on it: changes that will mix with
+ * the run's, or a branch behind its upstream.
+ * @param root - The repo.
+ * @param out - Where to write.
+ */
+function warnHere(root: string, out: Output): void {
+  const changed = changedPaths(root);
+  if (changed.length > 0) warn(out, `tu copia tiene cambios sin commit (${changed.length === 1 ? changed[0] : `${changed.length} archivos`}); los de apply se mezclarán con ellos.`);
+  const behind = behindUpstream(root);
+  if (behind > 0) warn(out, `tu rama está ${behind} ${behind === 1 ? "commit" : "commits"} atrás de origin, según el último fetch; corre git pull antes, o usa --pr.`);
+}
+
 /**
  * Runs the command; see the file's header.
  * @param options - The options.
  * @param out - Where to write and ask.
  * @returns 0, or 1 if a step failed or the person cancelled.
  * @throws KitError outside the main checkout or with a broken file; UsageError for an unknown piece.
- * @example await sync({ cwd, yes: false, dryRun: true, verbose: false, skip: [], commit: false, pieces: false }, out)
+ * @example await sync({ cwd, yes: false, dryRun: true, verbose: false, skip: [], pr: false, here: false, pieces: false }, out)
  */
 export async function sync(options: SyncOptions, out: Output): Promise<number> {
   const unknown = options.skip.find((name) => !pieceNames().includes(name));
   if (unknown !== undefined) throw new UsageError(`no existe la pieza ${unknown}; son ${pieceNames().join(", ")}.`);
   if (options.yes && options.dryRun) throw new UsageError("usa --yes o --dry-run, no los dos.");
+  if (options.pr && options.here) throw new UsageError("usa --pr o --here, no los dos.");
   if (options.pieces && (options.yes || options.dryRun)) throw new UsageError("usa --pieces solo, sin --yes ni --dry-run.");
   if (options.pieces && !out.interactive) throw new UsageError("--pieces pregunta qué piezas usa el repo; córrelo en una terminal.");
   const root = mainCheckout(options.cwd, "agent-kitchen apply");
-  const base = options.commit ? baseBranch(root) : null;
-  if (base !== null) checkReady(root, base);
   setVerbose(options.verbose);
+  const place = await choosePlace(root, options, out);
+  if (place === null) {
+    out.stdout("No se cambió nada.\n");
+    return 1;
+  }
+  if (place === "here") {
+    if (!options.dryRun) warnHere(root, out);
+    return applyIn({ kind: "here", root }, options, out);
+  }
+  const base = baseBranch(root);
+  out.stdout(`${ui.cloning(base)}\n`);
+  const work: Workplace = { kind: "pr", root: cloneFromOrigin(root, base), repo: root, base, keep: false };
+  try {
+    return await applyIn(work, options, out);
+  } finally {
+    if (!work.keep) removeClone(work.root);
+  }
+}
+
+/**
+ * Looks at the pieces, asks, runs the steps and ends as the place says.
+ * @param work - Where to work.
+ * @param options - The options.
+ * @param out - Where to write and ask.
+ * @returns 0, or 1 if a step failed or the person cancelled.
+ */
+async function applyIn(work: Workplace, options: SyncOptions, out: Output): Promise<number> {
+  const { root } = work;
+  const pr = work.kind === "pr";
   let saved = readDecisions(root);
   let wrote = false;
   for (const warning of saved?.warnings ?? []) warn(out, warning);
   if (options.pieces) {
-    if (!(await choosePieces(root, saved, base !== null, out))) {
+    if (!(await choosePieces(root, saved, pr, out))) {
       out.stdout("No se cambió nada.\n");
       return 0;
     }
@@ -334,16 +401,16 @@ export async function sync(options: SyncOptions, out: Output): Promise<number> {
   }
   printStatus(statuses, off(saved).filter((name) => !options.skip.includes(name)), out);
   const steps = statuses.flatMap((status) => status.steps);
-  // With --commit, a run that only wrote the decisions file still ends with the question.
-  const progress = progressFor(out, options.verbose, base !== null);
-  const endWithoutSteps = async (): Promise<number> => (base !== null && wrote ? commitChanges(root, base, commitLabels([], true), [], progress, options, out) : 0);
+  const progress = progressFor(out, options.verbose);
+  // In a clone, a run that only wrote the decisions file still ends in a PR.
+  const endWithoutSteps = async (): Promise<number> => (work.kind === "pr" && wrote ? openPr(work, commitLabels([], true), [], progress, out) : 0);
   if (steps.length === 0) {
-    if (saves) wrote = saveDecisions(root, saved, statuses, [], base !== null, out) || wrote;
+    if (saves) wrote = saveDecisions(root, saved, statuses, [], pr, out) || wrote;
     out.stdout(`${ui.upToDate}\n`);
     return endWithoutSteps();
   }
   const chosen = await chooseSteps(root, steps, options, out);
-  if (saves && Array.isArray(chosen)) wrote = saveDecisions(root, saved, statuses, chosen, base !== null, out) || wrote;
+  if (saves && Array.isArray(chosen)) wrote = saveDecisions(root, saved, statuses, chosen, pr, out) || wrote;
   if (chosen === "leave") {
     out.stdout(noStepsMessage("leave", wrote));
     return endWithoutSteps();
@@ -366,7 +433,7 @@ export async function sync(options: SyncOptions, out: Output): Promise<number> {
     if (!(await runStep(root, step, progress, out))) failedSteps.push(step);
   }
   const failed = failedSteps.map(stepLabel);
-  if (base !== null) return commitChanges(root, base, commitLabels(chosen.filter((step) => !failedSteps.includes(step)), wrote), failed, progress, options, out);
+  if (work.kind === "pr") return openPr(work, commitLabels(chosen.filter((step) => !failedSteps.includes(step)), wrote), failed, progress, out);
   const installFailed = packageText(root) !== pkgBefore ? !(await install(root, progress, out)) : false;
   if (installFailed) failed.push(phrases({ kind: "install-deps", manager: packageManager(root) }).menu);
   out.stdout(`\n${ui.summary(failed)} ${ui.next(installFailed ? packageManager(root) : null)}\n`);
@@ -390,39 +457,41 @@ async function install(root: string, progress: Progress, out: Output): Promise<b
 }
 
 /**
- * The end of `--commit`: the install if package.json changed, the changes, the question (or
- * the branch with a PR under --yes) and what git did.
- * @param root - The repo.
- * @param base - The base branch.
+ * The end of a run in a clone: the install, the changes, the commit, the push and the PR.
+ * Nothing is pushed if a step, the install or the commit failed; the clone is kept then.
+ * @param work - The clone.
  * @param done - What the commit lists: the steps that worked, and the decisions file if written.
  * @param failed - The steps that failed, as the interface names them.
  * @param progress - How progress is shown, for the install.
- * @param options - The options.
- * @param out - Where to write and ask.
- * @returns 0, or 1 if a step, the install or git failed.
+ * @param out - Where to write.
+ * @returns 0, or 1 if a step, the install, git or the PR failed.
  */
-async function commitChanges(root: string, base: string, done: string[], failed: string[], progress: Progress, options: SyncOptions, out: Output): Promise<number> {
+async function openPr(work: Extract<Workplace, { kind: "pr" }>, done: string[], failed: string[], progress: Progress, out: Output): Promise<number> {
   const summary = ui.summary(failed);
-  const changed = changedPaths(root);
-  if (changed.length === 0) {
-    out.stdout(`\n${summary} No cambió ningún archivo: no hay nada que commitear.\n`);
+  const before = changedPaths(work.root);
+  if (before.length === 0) {
+    out.stdout(`\n${summary} ${ui.noChanges}\n`);
     return failed.length === 0 ? 0 : 1;
   }
-  const manager = packageManager(root);
-  const packageChanged = changed.includes("package.json");
-  if (packageChanged && !(await install(root, progress, out))) {
-    out.stdout(`\n${summary} No commiteé: el install falló y los cambios quedan sin commit.\n`);
+  if (failed.length > 0) {
+    work.keep = true;
+    out.stdout(`\n${summary} ${ui.prNotOpened("step", work.root)}\n`);
     return 1;
   }
-  const paths = changedPaths(root);
-  out.stdout(`\n${summary} Cambios:\n${paths.map((path) => `  ${path}`).join("\n")}\n`);
-  if (failed.length > 0 && options.yes) {
-    out.stdout("No commiteé porque algún paso falló; los cambios quedan sin commit.\n");
+  // A clone starts without node_modules, and the repo's hooks may need them.
+  if (packageText(work.root) !== null && !(await install(work.root, progress, out))) {
+    work.keep = true;
+    out.stdout(`\n${summary} ${ui.prNotOpened("install", work.root)}\n`);
     return 1;
   }
-  const branch = branchName(root, new Date());
-  const choice = options.yes ? "pr" : await askFinish(base, branch, failed.length > 0);
-  const result = await finish(root, choice, { base, branch, steps: done, paths, manager, packageChanged });
+  // Only a changed package.json brings the lockfile along; an install that only rewrites it stays out.
+  const paths = before.includes("package.json") ? changedPaths(work.root) : before;
+  out.stdout(`\n${summary} ${ui.changes}\n${paths.map((path) => `  ${path}`).join("\n")}\n`);
+  const result = await publish(work.repo, work.root, { base: work.base, steps: done, paths });
   for (const line of result.lines) out.stdout(`${line}\n`);
-  return result.ok && failed.length === 0 ? 0 : 1;
+  if (!result.pushed) {
+    work.keep = true;
+    out.stdout(`${ui.prNotOpened("git", work.root)}\n`);
+  }
+  return result.ok ? 0 : 1;
 }

@@ -48,7 +48,8 @@ Si npm o GitHub no responden, la pieza se muestra pero no se ofrece actualizarla
 npx agent-kitchen apply                        # pregunta, en una terminal (Enter: todo lo sugerido)
 npx agent-kitchen apply --dry-run              # solo muestra qué haría
 npx agent-kitchen apply --yes                  # hace lo sugerido sin preguntar
-npx agent-kitchen apply --commit               # al final, pregunta si commitear, en una rama o con PR
+npx agent-kitchen apply --pr                   # en una copia de origin, y abre un PR en draft
+npx agent-kitchen apply --here                 # en tu copia, sin commit
 npx agent-kitchen apply --verbose              # muestra la salida de cada herramienta
 npx agent-kitchen apply --skip claude-cloud    # deja fuera una pieza (o varias, con comas)
 npx agent-kitchen apply --pieces               # cambia qué piezas usa el repo (solo en una terminal)
@@ -59,14 +60,16 @@ npx agent-kitchen doctor                       # revisa cada pieza con su propio
 
 - **Sin terminal y sin `--yes`** (por ejemplo, desde un agente), solo muestra lo que ofrecería.
 - **Corre en el checkout principal,** no en un worktree, y desde tu terminal. Dentro de una sesión de Claude, el sandbox de `claude-repo-guard` no deja escribir `.claude/settings.json`.
-- **Al terminar,** si los pasos cambiaron `package.json`, corre el `install` de tu gestor de paquetes. Te queda revisar el diff y hacer commit. O usa `--commit`.
+**Dónde trabaja.** En una terminal, sin `--pr` ni `--here`, lo primero que pregunta es dónde aplicar los cambios. Con `--yes`, sin terminal o sin remoto `origin`, trabaja en tu copia.
 
-**`--commit`** deja los cambios commiteados sin que lo haga un agente:
+**`--pr`** deja los cambios en un PR sin tocar tu copia:
 
-- **Antes de cualquier paso,** exige el repo sin cambios (también sin seguimiento; los worktrees de `.claude/worktrees/` no cuentan) y en la rama base: `baseBranch` de `.agents/flow.json`, si no la rama por defecto de `origin`, si no `main`. Con `--dry-run` hace solo esta revisión y lista los pasos.
-- **Al terminar,** si cambió `package.json`, corre el `install` de tu gestor para que el lockfile entre en el commit. Muestra los archivos cambiados y pregunta: dejarlos sin commit (por defecto), commit en la base, commit en una rama nueva `chore/agent-kitchen-apply-<fecha>`, o rama nueva con push y PR (con `@ramon-sg/github-rest`).
-- **Con rama,** la copia principal pasa por la rama solo mientras corre el comando: commitea ahí (los hooks de git corren, y uno que prohíbe commitear en la base no la frena) y vuelve a la base sin los cambios. Si el push o el PR fallan, la rama queda y la salida dice qué correr.
-- **Con `--yes`,** elige la rama con PR. Si algún paso falló, no commitea.
+- **Parte de origin, no de tu copia.** Hace `git fetch` y clona el repo en una carpeta temporal en `origin/<base>`: `baseBranch` de `.agents/flow.json`, si no la rama por defecto de `origin`, si no `main`. Da igual si tu copia está atrás, en otra rama o con cambios: ni sus archivos ni su `node_modules` cambian. Es un clon y no un worktree porque `issue-flow apply` no corre en un worktree; el clon comparte los objetos del repo, así que no copia el historial.
+- **Al terminar,** instala las dependencias en el clon (los hooks del repo pueden necesitarlas) y hace el commit con los hooks, el nombre y la firma de tu repo. El lockfile entra solo si cambió `package.json`.
+- **Sube la rama directo a origin.** Tu repo empuja el commit a `chore/agent-kitchen-apply-<fecha>` sin crear una rama local, y abre el PR en draft con `@ramon-sg/github-rest`. Tras el merge, `git fetch --prune` limpia la referencia `origin/chore/…`.
+- **Si algo falla antes del push** (un paso, el install o el commit), no sube nada y deja el clon para revisarlo; la salida dice dónde está. Si el push funciona y el PR falla, la salida dice qué correr.
+
+**`--here`** trabaja en tu copia, como `ng update` o `copier update`. Avisa si tu copia tiene cambios sin commit o si tu rama está atrás de origin según el último fetch. Si los pasos cambiaron `package.json`, corre el `install` de tu gestor de paquetes al final. Te queda revisar el diff y hacer commit.
 
 **`doctor`** corre el doctor de cada herramienta en la versión del repo: `issue-flow doctor --json`, `skills-manager check` y `claude-repo-guard doctor --json`. Además revisa que `skills-manager` esté al menos en 1.2.0, que las skills del flujo estén en la tag de su CLI, qué labels del flujo le faltan a GitHub (con `·`), que `.claude/cloud.json` fije una versión exacta y, en macOS, `weakerNetworkIsolation`. En un repo con `package.json`, también la línea de `AGENTS.md` y, si hay `CLAUDE.md`, su `@AGENTS.md`. Lo que no está instalado o tiene una versión nueva solo se anota con `·`. Sale con 1 si algo falla (`✗`).
 

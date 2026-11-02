@@ -49,7 +49,7 @@ test("--yes on an empty repo installs everything in order, each piece with its o
   assert.match(r.out, /Listo\. Falta: revisa el diff y haz commit\./);
 });
 
-test("without --commit, steps that leave package.json as it was do not install, even if it already had changes", () => {
+test("in the checkout, steps that leave package.json as it was do not install, even if it already had changes", () => {
   const repo = installedRepo({ cloud: "1.0.0" });
   const pkg = repo.read("package.json");
   repo.write("package.json", { ...pkg, scripts: { mio: "true" } });
@@ -63,7 +63,7 @@ test("without --commit, steps that leave package.json as it was do not install, 
   assert.match(r.out, /Listo\. Falta: revisa el diff y haz commit\./);
 });
 
-test("without --commit, a failed install is a failure and is left to do by hand", () => {
+test("in the checkout, a failed install is a failure and is left to do by hand", () => {
   const repo = makeRepo();
 
   const r = repo.cli(["--yes", "--skip", "claude-cloud,claude-repo-guard,skills"], { env: { FAKE_FAIL: "install" } });

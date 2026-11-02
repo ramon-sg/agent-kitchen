@@ -1,5 +1,5 @@
 /**
- * @file The texts of the commit and the PR of `apply --commit`. They are always in Spanish,
+ * @file The texts of the commit and the PR of `apply --pr`. They are always in Spanish,
  * whatever language the interface shows: a repo's history should not change language with the
  * terminal of whoever ran the command. A step reads as its Spanish menu order.
  */
