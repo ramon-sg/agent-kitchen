@@ -67,7 +67,7 @@ apply ofrece "Subir github-rest 0.2.1 → 0.3.0", detrás del paso del flujo ([e
   6. De 0.3.0 a 0.3.1 con mínimos distintos (0.3.0 y 0.4.0) y github-rest 0.3.0: usa el de 0.3.1 y sube a 0.4.0.
 - **Siguen pasando, sin cambios:** `test/flow-apply.test.mjs`, `test/sync.test.mjs`, `test/doctor.test.mjs`, `test/labels.test.mjs`. No fijan `FAKE_NPM_DEPS`, así que no ven el paso; los tests 1–6 prueban la ruta nueva.
 - **Ojo:** el mínimo es el de la versión que queda, no el de la que había. El paso relee package.json al correr: Dependabot puede haberlo cambiado. Una lectura más de npm no debe colgar el menú sin red.
-- **Hecho cuando:** `npm test` pasa. En un repo temporal con issue-flow 0.2.7 y github-rest 0.2.1, `AGENT_KITCHEN_HANDED_OVER=1 node <worktree>/dist/cli.js apply --yes --skip agent-cloud-kit,claude-repo-guard,skills,agents-md` deja issue-flow en la última de npm y github-rest 0.3.0, y el `doctor` del flujo en esa versión no marca github-rest.
+- **Hecho cuando:** `npm test` pasa. En un repo temporal con issue-flow 0.2.7 y github-rest 0.2.1, `AGENT_KITCHEN_HANDED_OVER=1 node <worktree>/dist/cli.js apply --yes --skip claude-cloud,claude-repo-guard,skills,agents-md` deja issue-flow en la última de npm y github-rest 0.3.0, y el `doctor` del flujo en esa versión no marca github-rest.
 
 ## Desvíos
 

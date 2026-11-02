@@ -58,7 +58,7 @@ Comprobado el 2026-10-30 sobre `feat/7-installed-version-docs` en `371657c`, con
 
 - **Archivos:** `src/pieces/agents-md.ts` (`NAME = "agents-md"`, `VERSION_RULE` con el texto exacto de la issue, `agentsMdStatus(root, flowComing)`, `agentsMdChecks(root)`), `src/commands/sync.ts` (`PIECES`, `statusesOf` y el encabezado), `src/commands/doctor.ts` (registro y encabezado), `src/piece.ts` (encabezado), `AGENTS.md` de la raíz (la línea), `test/helpers.mjs` (`installedRepo` escribe `AGENTS.md` con la línea), `test/sync.test.mjs`, `test/doctor.test.mjs`.
 - **Qué escribe el paso:** sin `AGENTS.md`, lo crea con la línea y un salto final; con `AGENTS.md`, agrega al final una línea en blanco y la línea. Si hay `CLAUDE.md` sin `@AGENTS.md`, le agrega `@AGENTS.md` al final. La etiqueta nombra los archivos que toca.
-- **Tests, en orden** (con `--skip issue-flow,agent-cloud-kit,claude-repo-guard,skills` salvo el 4):
+- **Tests, en orden** (con `--skip issue-flow,claude-cloud,claude-repo-guard,skills` salvo el 4):
   1. Con `package.json` y sin `AGENTS.md`, `--dry-run` muestra `[x] Agregar a AGENTS.md la regla de versiones instaladas`.
   2. Con `--yes`, `AGENTS.md` queda igual a `VERSION_RULE + "\n"`, y no se crea `CLAUDE.md`.
   3. Con un `AGENTS.md` y un `CLAUDE.md` propios, los dos conservan su contenido; `AGENTS.md` termina con la línea y `CLAUDE.md` con `@AGENTS.md`.
