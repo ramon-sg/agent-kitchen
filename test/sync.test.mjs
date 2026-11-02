@@ -6,7 +6,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { CANDIDATES, installedRepo, makeRepo } from "./helpers.mjs";
+import { CANDIDATES, installedRepo, makeRepo, npmCloud } from "./helpers.mjs";
 
 const ALL_SKILLS = CANDIDATES.map((candidate) => candidate.id).join(",");
 
@@ -528,4 +528,72 @@ test("a broken decisions file stops apply and is left as it was", () => {
   assert.equal(r.status, 1);
   assert.match(r.err, /\.agents\/kitchen\.json no es JSON válido/);
   assert.equal(decisionsText(repo), "{");
+});
+
+const CLOUD_ONLY = ["--yes", "--skip", "issue-flow,claude-repo-guard,skills"];
+
+test("agent-cloud-kit installs the exact release candidate that npm calls latest", () => {
+  const repo = makeRepo();
+
+  const dry = repo.cli(["--dry-run"], { env: { FAKE_NPM: npmCloud("1.0.0-rc.0") } });
+  const r = repo.cli(CLOUD_ONLY, { env: { FAKE_NPM: npmCloud("1.0.0-rc.0") } });
+
+  assert.match(dry.out, /Instalar agent-cloud-kit 1\.0\.0-rc\.0: /);
+  assert.equal(r.status, 0, r.err);
+  assert.deepEqual(repo.calls(), [["agent-cloud-kit@1.0.0-rc.0", "init"]]);
+  assert.equal(repo.read(".claude/cloud.json").version, "1.0.0-rc.0");
+});
+
+test("agent-cloud-kit falls back to @1 when npm does not answer", () => {
+  const repo = makeRepo();
+
+  const r = repo.cli(CLOUD_ONLY, { env: { FAKE_NPM: "{}" } });
+
+  assert.equal(r.status, 0, r.err);
+  assert.deepEqual(repo.calls(), [["agent-cloud-kit@1", "init"]]);
+});
+
+test("a pinned release candidate moves to the next one, with its $schema", () => {
+  const repo = installedRepo({ cloud: "1.0.0-rc.0" });
+  repo.write(".claude/cloud.json", { $schema: "https://unpkg.com/agent-cloud-kit@1.0.0-rc.0/schema.json", version: "1.0.0-rc.0", apt: ["jq"] });
+
+  const r = repo.cli(CLOUD_ONLY, { env: { FAKE_NPM: npmCloud("1.0.0-rc.1") } });
+
+  assert.equal(r.status, 0, r.err);
+  assert.deepEqual(repo.calls(), [["agent-cloud-kit@1.0.0-rc.1", "init"]]);
+  assert.deepEqual(repo.read(".claude/cloud.json"), { $schema: "https://unpkg.com/agent-cloud-kit@1.0.0-rc.1/schema.json", version: "1.0.0-rc.1", apt: ["jq"] });
+});
+
+test("a pinned release candidate moves to the release, and a release schema to a prerelease", () => {
+  const repo = installedRepo({ cloud: "1.0.0-rc.1" });
+  repo.write(".claude/cloud.json", { $schema: "https://unpkg.com/agent-cloud-kit@1.0.0-rc.1/schema.json", version: "1.0.0-rc.1" });
+
+  const r = repo.cli(CLOUD_ONLY, { env: { FAKE_NPM: npmCloud("1.0.0") } });
+
+  assert.equal(r.status, 0, r.err);
+  assert.deepEqual(repo.read(".claude/cloud.json"), { $schema: "https://unpkg.com/agent-cloud-kit@1.0.0/schema.json", version: "1.0.0" });
+});
+
+test("a pinned release candidate equal to latest, or newer than it, offers nothing", () => {
+  for (const [pinned, latest] of [["1.0.0-rc.0", "1.0.0-rc.0"], ["1.0.0", "1.0.0-rc.1"]]) {
+    const repo = installedRepo({ cloud: pinned });
+
+    const r = repo.cli(CLOUD_ONLY, { env: { FAKE_NPM: npmCloud(latest) } });
+
+    assert.equal(r.status, 0, r.err);
+    assert.deepEqual(repo.calls().filter((args) => args[0].startsWith("agent-cloud-kit")), [], `${pinned} vs ${latest}`);
+    assert.equal(repo.read(".claude/cloud.json").version, pinned);
+    const doctor = repo.cli(["doctor"], { env: { FAKE_NPM: npmCloud(latest) } });
+    assert.doesNotMatch(doctor.out, /agent-cloud-kit: .*hay/);
+    assert.doesNotMatch(doctor.out, /✗ agent-cloud-kit/);
+  }
+});
+
+test("doctor accepts a pinned release candidate and notes the next one", () => {
+  const repo = installedRepo({ cloud: "1.0.0-rc.0" });
+
+  const r = repo.cli(["doctor"], { env: { FAKE_NPM: npmCloud("1.0.0-rc.1") } });
+
+  assert.doesNotMatch(r.out, /no fija una versión exacta/);
+  assert.match(r.out, /· agent-cloud-kit: 1\.0\.0-rc\.0, hay 1\.0\.0-rc\.1/);
 });

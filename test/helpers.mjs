@@ -18,6 +18,10 @@ export { GIT_ENV };
 
 export const NPM = { "@ramon-sg/issue-flow": "0.2.0", "agent-cloud-kit": "1.1.0" };
 
+// What npm answers when agent-cloud-kit's `latest` is `version` (a release candidate, say) and
+// everything else is as in NPM. For FAKE_NPM.
+export const npmCloud = (version) => JSON.stringify({ ...NPM, "agent-cloud-kit": version });
+
 // The rule agent-kitchen writes into AGENTS.md (src/pieces/agents-md.ts), copied as a literal on
 // purpose: the line is a contract that other agents read, not a value to derive.
 export const RULE = "Antes de usar una biblioteca, mira su versión instalada en `node_modules/<biblioteca>/package.json` y lee sus tipos o su documentación ahí. Si no alcanza, busca la documentación de esa versión, no la última.";

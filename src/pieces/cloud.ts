@@ -8,7 +8,7 @@
  */
 import type { Check, PieceStatus, Step } from "../piece.js";
 import { readJson, writeJson } from "../repo.js";
-import { compareVersions, isRelease, npmLatest, runNpx } from "../tools.js";
+import { compareSemver, isExactVersion, npmLatestExact, runNpx } from "../tools.js";
 
 /** The piece's name, as `--skip` takes it. */
 export const NAME = "agent-cloud-kit";
@@ -20,12 +20,12 @@ export const PACKAGE = "agent-cloud-kit";
 const CONFIG = ".claude/cloud.json";
 
 /**
- * The version `.claude/cloud.json` pins.
+ * The version `.claude/cloud.json` pins: exact semver, so a release candidate counts.
  * @param config - The config, or null.
  * @returns The version, or null if it has none.
  */
 function pinned(config: Record<string, unknown> | null): string | null {
-  return typeof config?.version === "string" && isRelease(config.version) ? config.version : null;
+  return typeof config?.version === "string" && isExactVersion(config.version) ? config.version : null;
 }
 
 /**
@@ -51,7 +51,7 @@ function stepFor(config: Record<string, unknown> | null, latest: string | null):
       },
     };
   }
-  if (latest === null || (version !== null && compareVersions(latest, version) <= 0)) return null;
+  if (latest === null || (version !== null && compareSemver(latest, version) <= 0)) return null;
   return {
     piece: NAME,
     checked: true,
@@ -78,7 +78,7 @@ function stepFor(config: Record<string, unknown> | null, latest: string | null):
  */
 export async function cloudStatus(root: string): Promise<PieceStatus> {
   const config = readJson(root, CONFIG);
-  const latest = await npmLatest(PACKAGE);
+  const latest = await npmLatestExact(PACKAGE);
   const version = pinned(config);
   const step = stepFor(config, latest);
   const known = latest === null ? " (npm no responde)" : "";
@@ -96,8 +96,8 @@ export async function cloudChecks(root: string): Promise<Check[]> {
   const config = readJson(root, CONFIG);
   if (config === null) return [{ name: NAME, status: "info", detail: "no instalado" }];
   const version = pinned(config);
-  const latest = await npmLatest(PACKAGE);
+  const latest = await npmLatestExact(PACKAGE);
   if (version === null) return [{ name: NAME, status: "fail", detail: `${CONFIG} no fija una versión exacta: pon en "version" la que se usa, como "${latest ?? "1.0.0"}"` }];
-  if (latest !== null && compareVersions(latest, version) > 0) return [{ name: NAME, status: "info", detail: `${version}, hay ${latest}: corre npx agent-kitchen apply` }];
+  if (latest !== null && compareSemver(latest, version) > 0) return [{ name: NAME, status: "info", detail: `${version}, hay ${latest}: corre npx agent-kitchen apply` }];
   return [{ name: NAME, status: "ok", detail: version }];
 }
