@@ -14,7 +14,7 @@ const npm = (version) => JSON.stringify({ ...NPM, [FLOW]: version });
 const labels = (...missing) => JSON.stringify({ repo: "acme/app", dryRun: true, labels: [{ name: "bug", status: "ok" }, ...missing.map((name) => ({ name, status: "to-create" })), { name: "P2: important", status: "differs" }] });
 
 // Every piece but the flow, so only its steps run.
-const ONLY = ["--skip", "skills-manager,claude-cloud,claude-repo-guard,skills,agents-md"];
+const ONLY = ["--skip", "skills-manager,agent-cloud-kit,claude-repo-guard,skills,agents-md"];
 
 // Whether a call is the write of labels sync (not its --dry-run).
 const syncs = (repo) => repo.calls().filter((args) => args[1] === "labels" && !args.includes("--dry-run"));
@@ -57,7 +57,7 @@ test("when the sync fails, its step fails with how to retry, and the others stil
   assert.match(r.out, /✗ Falló: Crear en GitHub los labels que faltan: spike/);
   assert.match(r.err, /issue-flow labels falló; corre 'npx @ramon-sg\/issue-flow@0\.2\.6 labels sync'/);
   assert.match(r.err, /gh auth login is needed/);
-  assert.match(r.out, /✓ claude-cloud actualizado de 1\.0\.0 a /);
+  assert.match(r.out, /✓ agent-cloud-kit actualizado de 1\.0\.0 a /);
 });
 
 test("when the labels cannot be read, there is no step, and the state says so", () => {

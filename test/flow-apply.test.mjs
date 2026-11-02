@@ -11,7 +11,7 @@ const FLOW = "@ramon-sg/issue-flow";
 const npm = (version) => JSON.stringify({ ...NPM, [FLOW]: version });
 
 // Every piece but the flow, so only its steps run.
-const ONLY = ["--skip", "skills-manager,claude-cloud,claude-repo-guard,skills,agents-md"];
+const ONLY = ["--skip", "skills-manager,agent-cloud-kit,claude-repo-guard,skills,agents-md"];
 
 // The flow's own commands of the last run, as text, without its version.
 const flowCalls = (repo) => repo.calls().filter((args) => args[0].startsWith(`${FLOW}@`)).map((args) => args.slice(1).join(" "));
@@ -186,7 +186,7 @@ test("after installing with apply, the labels step runs", () => {
 test("in a repo without package.json, skills-manager is pinned in the package.json the flow's apply makes", () => {
   const repo = makeRepo();
 
-  const r = repo.cli(["--yes", "--skip", "claude-cloud,claude-repo-guard,agents-md"], { env: { FAKE_NPM: npm("0.3.0") } });
+  const r = repo.cli(["--yes", "--skip", "agent-cloud-kit,claude-repo-guard,agents-md"], { env: { FAKE_NPM: npm("0.3.0") } });
 
   assert.equal(r.status, 0, r.err);
   assert.match(r.out, /✓ package\.json creado con skills-manager 1\.2\.0/);
@@ -197,7 +197,7 @@ test("in a repo without package.json, skills-manager is pinned in the package.js
   assert.equal(repo.calls().find((args) => args[1] === "init" && args[0].includes("skills-manager"))?.[0], "@ramon-sg/skills-manager@1.2.0");
 
   const alone = makeRepo();
-  const skipped = alone.cli(["--yes", "--skip", "issue-flow,claude-cloud,claude-repo-guard,agents-md"]);
+  const skipped = alone.cli(["--yes", "--skip", "issue-flow,agent-cloud-kit,claude-repo-guard,agents-md"]);
   assert.equal(skipped.status, 0, skipped.err);
   assert.doesNotMatch(skipped.out, /package\.json/);
   assert.ok(!alone.exists("package.json"));

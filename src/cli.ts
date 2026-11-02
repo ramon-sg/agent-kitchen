@@ -14,7 +14,7 @@ import { KitError, processOutput, UsageError } from "./output.js";
 import { FLOW_PACKAGE, GENERAL_CATALOGS } from "./piece.js";
 import { PACKAGE as CLOUD_PACKAGE } from "./pieces/cloud.js";
 import { REPO as GUARD_REPO } from "./pieces/guard.js";
-import { compareVersions, isRelease, latestTag, npmLatest } from "./tools.js";
+import { compareVersions, isRelease, latestTag, npmLatest, npmLatestExact } from "./tools.js";
 
 /** This package on npm. */
 const PACKAGE = "agent-kitchen";
@@ -57,7 +57,7 @@ function ownVersion(): string {
  */
 function startLookups(): void {
   void npmLatest(FLOW_PACKAGE);
-  void npmLatest(CLOUD_PACKAGE);
+  void npmLatestExact(CLOUD_PACKAGE);
   void latestTag(GUARD_REPO);
   for (const catalog of GENERAL_CATALOGS) void latestTag(catalog);
 }

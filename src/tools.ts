@@ -13,6 +13,8 @@ import { spawn } from "node:child_process";
 
 /** A release version. */
 const VERSION = /^(\d+)\.(\d+)\.(\d+)$/;
+/** An exact semver version: release plus an optional prerelease, no build metadata. */
+const SEMVER = /^(\d+)\.(\d+)\.(\d+)(?:-((?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*))?$/;
 
 /** How long a lookup of the latest version may take before it counts as unknown. */
 const LOOKUP_TIMEOUT_MS = 20_000;
@@ -76,6 +78,45 @@ export function isRelease(version: string): boolean {
 }
 
 /**
+ * Whether a version is exact semver: a release like 1.2.3, or one with a prerelease like 1.2.3-rc.0.
+ * @param version - The text.
+ * @returns True for an exact version; ranges, tags and build metadata are not.
+ * @example isExactVersion("1.0.0-rc.0") // true
+ */
+export function isExactVersion(version: string): boolean {
+  return SEMVER.test(version);
+}
+
+/**
+ * Compares two exact versions by semver precedence, prereleases included.
+ * @param left - A version like 1.0.0-rc.0.
+ * @param right - Another.
+ * @returns Negative if left is older, 0 if equal, positive if newer.
+ * @example compareSemver("1.0.0-rc.1", "1.0.0") // -1
+ */
+export function compareSemver(left: string, right: string): number {
+  const [a, b] = [SEMVER.exec(left), SEMVER.exec(right)];
+  for (let index = 1; index <= 3; index += 1) {
+    const diff = Number(a?.[index] ?? 0) - Number(b?.[index] ?? 0);
+    if (diff !== 0) return diff;
+  }
+  const [pre, other] = [a?.[4], b?.[4]];
+  if (pre === other) return 0;
+  if (pre === undefined) return 1;
+  if (other === undefined) return -1;
+  const [x, y] = [pre.split("."), other.split(".")];
+  for (let index = 0; index < Math.min(x.length, y.length); index += 1) {
+    const [p, q] = [x[index] as string, y[index] as string];
+    if (p === q) continue;
+    const [pNumber, qNumber] = [/^\d+$/.test(p), /^\d+$/.test(q)];
+    if (pNumber && qNumber) return Number(p) - Number(q);
+    if (pNumber !== qNumber) return pNumber ? -1 : 1;
+    return p < q ? -1 : 1;
+  }
+  return x.length - y.length;
+}
+
+/**
  * Runs a program and collects what it prints.
  * @param program - The program.
  * @param args - Its arguments.
@@ -118,14 +159,36 @@ function once<T>(key: string, lookup: () => Promise<T>): Promise<T> {
  * The latest version of a package on npm.
  * @param name - The package.
  * @returns The version, or null if npm cannot tell.
- * @example await npmLatest("@ramon-sg/claude-cloud") // "1.0.0"
+ * @example await npmLatest("agent-cloud-kit") // "1.0.0"
  */
 export function npmLatest(name: string): Promise<string | null> {
   return once(`npm:${name}`, async () => {
-    const result = await run("npm", ["view", name, "version", "--fetch-retries=0"], { timeout: LOOKUP_TIMEOUT_MS });
-    const version = result.status === 0 ? result.out.trim() : "";
+    const version = await npmVersion(name);
     return isRelease(version) ? version : null;
   });
+}
+
+/**
+ * The `latest` version of a package on npm, even if it is a prerelease like 1.0.0-rc.0.
+ * @param name - The package.
+ * @returns The version, or null if npm cannot tell or it is not exact semver.
+ * @example await npmLatestExact("agent-cloud-kit") // "1.0.0-rc.0"
+ */
+export function npmLatestExact(name: string): Promise<string | null> {
+  return once(`npm-exact:${name}`, async () => {
+    const version = await npmVersion(name);
+    return isExactVersion(version) ? version : null;
+  });
+}
+
+/**
+ * What `npm view <name> version` prints.
+ * @param name - The package.
+ * @returns The text, or "" if npm fails.
+ */
+async function npmVersion(name: string): Promise<string> {
+  const result = await run("npm", ["view", name, "version", "--fetch-retries=0"], { timeout: LOOKUP_TIMEOUT_MS });
+  return result.status === 0 ? result.out.trim() : "";
 }
 
 /**
@@ -168,7 +231,7 @@ export function latestTag(repo: string): Promise<string | null> {
  * @param root - The repo.
  * @param spec - The package, as npx takes it.
  * @returns When it is done.
- * @example void download(root, "@ramon-sg/claude-cloud@1.0.0")
+ * @example void download(root, "agent-cloud-kit@1.0.0")
  */
 export function download(root: string, spec: string): Promise<void> {
   const known = downloads.get(spec);
@@ -190,7 +253,7 @@ export interface ToolRun {
  * @param root - The repo.
  * @param args - The package and its arguments.
  * @returns Whether it exited 0, and what it printed.
- * @example await runNpx(root, ["@ramon-sg/claude-cloud@1.0.0", "init"])
+ * @example await runNpx(root, ["agent-cloud-kit@1.0.0", "init"])
  */
 export async function runNpx(root: string, args: string[]): Promise<ToolRun> {
   const result = await run("npx", ["--yes", ...args], { cwd: root, inherit: verbose });

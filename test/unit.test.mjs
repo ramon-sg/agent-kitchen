@@ -4,7 +4,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { menuOptions, pieceOptions, skillOptions } from "../dist/menu.js";
 import { keepOwn, skillsOf } from "../dist/pieces/skills.js";
-import { compareVersions } from "../dist/tools.js";
+import { compareSemver, compareVersions, isExactVersion } from "../dist/tools.js";
 import { guardCommand } from "../dist/pieces/guard.js";
 
 test("versions compare by number, not as text", () => {
@@ -17,7 +17,7 @@ test("the menu starts with the suggested steps ticked, in the steps' order", () 
   const steps = [
     { piece: "issue-flow", text: { kind: "flow-install", version: "0.3.0" }, checked: true, run: () => true },
     { piece: "skills", text: { kind: "skills-add", names: ["planning"] }, checked: false, fresh: true, run: () => true },
-    { piece: "claude-cloud", text: { kind: "cloud-update", from: null, to: "1.1.0", config: ".claude/cloud.json" }, checked: true, run: () => true },
+    { piece: "agent-cloud-kit", text: { kind: "cloud-update", from: null, to: "1.1.0", config: ".claude/cloud.json" }, checked: true, run: () => true },
   ];
 
   const { options, initialValues } = menuOptions(steps);
@@ -26,7 +26,7 @@ test("the menu starts with the suggested steps ticked, in the steps' order", () 
   assert.deepEqual(options.map((option) => option.label), [
     "Instalar issue-flow 0.3.0: config del flujo, hooks y scripts",
     "Agregar skills nuevas (1): planning (nueva)",
-    "Actualizar claude-cloud ? → 1.1.0 (la versión que fija .claude/cloud.json)",
+    "Actualizar agent-cloud-kit ? → 1.1.0 (la versión que fija .claude/cloud.json)",
   ]);
 });
 
@@ -91,4 +91,22 @@ test("the commit of --pr names the saved decisions next to the steps that ran", 
   assert.deepEqual(commitLabels([install], true), [line, saved]);
   assert.deepEqual(commitLabels([install], false), [line]);
   assert.deepEqual(commitLabels([], false), []);
+});
+
+test("exact versions accept semver prereleases and nothing looser", () => {
+  for (const ok of ["1.0.0", "1.0.0-rc.0", "1.0.0-rc.1", "0.0.0-stage", "1.2.3-alpha.1.beta"]) assert.equal(isExactVersion(ok), true, ok);
+  for (const bad of ["1", "1.0", "^1.0.0", "1.0.0-", "1.0.0-rc..1", "1.0.0-01", "v1.0.0", "1.0.0+build", "1.0.0 ", ""]) assert.equal(isExactVersion(bad), false, bad);
+});
+
+test("semver precedence ranks prereleases below their release", () => {
+  const ascending = ["1.0.0-alpha", "1.0.0-alpha.1", "1.0.0-alpha.beta", "1.0.0-beta", "1.0.0-beta.2", "1.0.0-beta.11", "1.0.0-rc.0", "1.0.0-rc.1", "1.0.0", "1.0.1", "1.1.0", "2.0.0"];
+  for (let low = 0; low < ascending.length; low += 1) {
+    for (let high = low; high < ascending.length; high += 1) {
+      const sign = Math.sign(compareSemver(ascending[high], ascending[low]));
+      assert.equal(sign + 0, high === low ? 0 : 1, `${ascending[high]} vs ${ascending[low]}`);
+      assert.equal(Math.sign(compareSemver(ascending[low], ascending[high])) + 0, -sign + 0);
+    }
+  }
+  assert.ok(compareSemver("1.0.0-rc.10", "1.0.0-rc.9") > 0, "numeric identifiers compare as numbers");
+  assert.ok(compareSemver("1.0.0-rc.a", "1.0.0-rc.1") > 0, "numeric ranks below alphanumeric");
 });

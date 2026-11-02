@@ -10,7 +10,7 @@ import { installedRepo, makeRepo } from "./helpers.mjs";
 const SM = "@ramon-sg/skills-manager";
 
 // Everything but this piece and the skills, whose calls say which skills-manager runs.
-const ONLY = ["--skip", "issue-flow,claude-cloud,claude-repo-guard,agents-md"];
+const ONLY = ["--skip", "issue-flow,agent-cloud-kit,claude-repo-guard,agents-md"];
 
 // An installed repo whose package.json has this skills-manager (null: none).
 function repoWith(spec, { flow = "0.2.0" } = {}) {
@@ -42,7 +42,7 @@ test("an exact version below the minimum is raised to it", () => {
 test("the flow's upgrade in the same run moves its skills with the raised version", () => {
   const repo = repoWith("1.1.0", { flow: "0.1.0" });
 
-  const r = repo.cli(["--yes", "--skip", "claude-cloud,claude-repo-guard,agents-md"]);
+  const r = repo.cli(["--yes", "--skip", "agent-cloud-kit,claude-repo-guard,agents-md"]);
 
   assert.equal(r.status, 0, r.err);
   assert.deepEqual(repo.calls().filter((args) => args[1] === "update"), [

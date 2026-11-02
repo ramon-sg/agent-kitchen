@@ -39,6 +39,8 @@ export interface Catalog {
   summary: (failed: string[]) => string;
   /** What is left to do by hand after the steps, in the checkout; with the manager if its install failed. */
   next: (failedInstall: string | null) => string;
+  /** The step after apply when agent-cloud-kit is installed. */
+  cloudNext: string;
   /** A new piece left out because no one was asked about it. */
   undecided: (names: string[]) => string;
   /** The repo's own skills left out of a pick. */
