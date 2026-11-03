@@ -317,7 +317,7 @@ async function choosePlace(root: string, options: SyncOptions, out: Output): Pro
  */
 function warnHere(root: string, out: Output): void {
   const changed = changedPaths(root);
-  if (changed.length > 0) warn(out, `tu copia tiene cambios sin commit (${changed.length === 1 ? changed[0] : `${changed.length} archivos`}); los de apply se mezclarán con ellos.`);
+  if (changed.length > 0) warn(out, `ya tienes cambios sin commit (${changed.length === 1 ? changed[0] : `${changed.length} archivos`}); los de apply se mezclarán con ellos.`);
   const behind = behindUpstream(root);
   if (behind > 0) warn(out, `tu rama está ${behind} ${behind === 1 ? "commit" : "commits"} atrás de origin, según el último fetch; corre git pull antes, o usa --pr.`);
 }

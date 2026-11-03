@@ -33,9 +33,9 @@ muestra qué tiene el repo y la última versión de cada una, y apply ofrece ins
 y actualizar lo que está atrasado. En una terminal pregunta una vez: hacer todo lo sugerido,
 o elegir los pasos y las skills. --yes hace lo sugerido sin preguntar; sin terminal solo lo
 muestra. --verbose muestra la salida de cada herramienta.
---pr trabaja en una copia temporal de origin/<base> recién bajada, sin tocar tu copia: instala
+--pr trabaja en una copia temporal de origin/<base> recién bajada, sin tocar tu rama: instala
 las dependencias, hace el commit, sube una rama nueva a origin y abre un PR en draft. --here
-trabaja en tu copia y deja los cambios sin commit; si los pasos cambiaron package.json, corre
+trabaja en la rama actual y deja los cambios sin commit; si los pasos cambiaron package.json, corre
 el install. En una terminal, sin ninguna de las dos, pregunta; con --yes o sin terminal, usa
 --here. apply --pieces elige qué piezas usa el repo y lo guarda en .agents/kitchen.json
 (en una terminal, sin --yes ni --dry-run). Córrelo en la copia principal del
@@ -107,7 +107,7 @@ async function main(argv: string[]): Promise<number> {
     if (values.yes !== undefined || values["dry-run"] !== undefined || values.skip !== undefined || values.verbose !== undefined || values.commit !== undefined || values.pr !== undefined || values.here !== undefined || values.pieces !== undefined) throw new UsageError("doctor no lleva opciones.");
     return doctor(process.cwd(), out);
   }
-  if (values.commit !== undefined) throw new UsageError("--commit ya no existe: usa --pr para abrir un PR desde una copia de origin, o --here para dejar los cambios sin commit en tu copia.");
+  if (values.commit !== undefined) throw new UsageError("--commit ya no existe: usa --pr para abrir un PR desde una copia de origin, o --here para dejar los cambios sin commit en la rama actual.");
   if (command === undefined) out.stderr("agent-kitchen: usa 'agent-kitchen apply'; sin subcomando dejará de instalar en una versión mayor.\n");
   const skip = (values.skip ?? "").split(",").map((name) => name.trim()).filter((name) => name !== "");
   return sync({ cwd: process.cwd(), yes: values.yes ?? false, dryRun: values["dry-run"] ?? false, verbose: values.verbose ?? false, skip, pr: values.pr ?? false, here: values.here ?? false, pieces: values.pieces ?? false }, out);

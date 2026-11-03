@@ -151,8 +151,8 @@ export async function askPlace(base: string): Promise<Place | null> {
     message: "¿Dónde aplico los cambios?",
     initialValue: "pr",
     options: [
-      { value: "pr", label: "En un PR nuevo", hint: `recomendado · parte de origin/${base}, no toca tu copia` },
-      { value: "here", label: "En tu copia, sin commit", hint: "los revisas con git diff y haces commit tú" },
+      { value: "pr", label: "En un PR nuevo", hint: `recomendado · parte de origin/${base}, no toca tu rama ni tus archivos` },
+      { value: "here", label: "En la rama actual, sin commit", hint: "los revisas con git diff y haces commit tú" },
     ],
   });
   return isCancel(answer) ? null : answer;
