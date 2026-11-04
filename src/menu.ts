@@ -1,5 +1,5 @@
 /**
- * @file The questions, in Spanish (`@clack/prompts`), all asked before any step runs: where to
+ * @file The questions, in the interface's language (`@clack/prompts`), all asked before any step runs: where to
  * apply (a PR or the checkout), the quick path (do everything suggested, pick, or leave), the
  * checkbox menu of the steps, the skills of a step grouped by catalog with their description,
  * and whether to replace the repo's own skills. They only run with a terminal.
@@ -7,7 +7,7 @@
 import { styleText } from "node:util";
 import { confirm, groupMultiselect, isCancel, MULTISELECT_INSTRUCTIONS, multiselect, select, SELECT_INSTRUCTIONS } from "@clack/prompts";
 import type { Candidate, Step } from "./piece.js";
-import { stepLabel } from "./texts/index.js";
+import { stepLabel, ui } from "./texts/index.js";
 
 /** What the person wants after seeing the table. */
 export type Path = "all" | "pick" | "leave";
@@ -16,12 +16,13 @@ export type Path = "all" | "pick" | "leave";
 const DESCRIPTION_WIDTH = 70;
 
 /**
- * Puts the keys' help of the menus in Spanish. The library exports those lines as arrays,
- * so they are replaced in place.
+ * Puts the keys' help of the menus in the interface's language. The library exports those
+ * lines as arrays, so they are replaced in place.
  */
-function spanishKeys(): void {
-  MULTISELECT_INSTRUCTIONS.splice(0, MULTISELECT_INSTRUCTIONS.length, `${styleText("dim", "↑/↓")} moverse`, `${styleText("dim", "Espacio:")} marcar`, `${styleText("dim", "Enter:")} seguir`);
-  SELECT_INSTRUCTIONS.splice(0, SELECT_INSTRUCTIONS.length, `${styleText("dim", "↑/↓")} moverse`, `${styleText("dim", "Enter:")} elegir`);
+function localKeys(): void {
+  const keys = ui.menu.keys;
+  MULTISELECT_INSTRUCTIONS.splice(0, MULTISELECT_INSTRUCTIONS.length, `${styleText("dim", "↑/↓")} ${keys.move}`, `${styleText("dim", keys.space)} ${keys.mark}`, `${styleText("dim", "Enter:")} ${keys.next}`);
+  SELECT_INSTRUCTIONS.splice(0, SELECT_INSTRUCTIONS.length, `${styleText("dim", "↑/↓")} ${keys.move}`, `${styleText("dim", "Enter:")} ${keys.choose}`);
 }
 
 /**
@@ -71,11 +72,11 @@ export function skillOptions(candidates: Candidate[]): Record<string, { value: s
  * @example await askPath(4) // "all"
  */
 export async function askPath(count: number): Promise<Path> {
-  spanishKeys();
-  const all = { value: "all" as const, label: `Todo lo sugerido (${count} ${count === 1 ? "paso" : "pasos"})`, hint: "recomendado" };
+  localKeys();
+  const all = { value: "all" as const, label: ui.menu.all(count), hint: ui.menu.recommended };
   const answer = await select<Path>({
-    message: "¿Qué hago?",
-    options: [...(count === 0 ? [] : [all]), { value: "pick", label: "Elegir qué hacer" }, { value: "leave", label: "Salir sin cambiar nada" }],
+    message: ui.menu.whatNow,
+    options: [...(count === 0 ? [] : [all]), { value: "pick", label: ui.menu.pick }, { value: "leave", label: ui.menu.leave }],
   });
   return isCancel(answer) ? "leave" : answer;
 }
@@ -87,9 +88,9 @@ export async function askPath(count: number): Promise<Path> {
  * @example await askSteps(steps)
  */
 export async function askSteps(steps: Step[]): Promise<Step[] | null> {
-  spanishKeys();
+  localKeys();
   const { options, initialValues } = menuOptions(steps);
-  const picked = await multiselect({ message: "¿Qué pasos hago?", options, initialValues, required: false });
+  const picked = await multiselect({ message: ui.menu.whichSteps, options, initialValues, required: false });
   if (isCancel(picked)) return null;
   return steps.filter((_, index) => picked.includes(index));
 }
@@ -102,9 +103,9 @@ export async function askSteps(steps: Step[]): Promise<Step[] | null> {
  * @example await askPieces(["issue-flow", "skills"], ["skills"])
  */
 export async function askPieces(names: string[], ticked: string[]): Promise<string[] | null> {
-  spanishKeys();
+  localKeys();
   const { options, initialValues } = pieceOptions(names, ticked);
-  const picked = await multiselect({ message: "¿Qué piezas usa este repo?", options, initialValues, required: false });
+  const picked = await multiselect({ message: ui.menu.whichPieces, options, initialValues, required: false });
   return isCancel(picked) ? null : picked;
 }
 
@@ -116,8 +117,8 @@ export async function askPieces(names: string[], ticked: string[]): Promise<stri
  * @example await askSkills(candidates, ["catalog:ramon-sg/agent-skills/planning"])
  */
 export async function askSkills(candidates: Candidate[], ticked: string[]): Promise<string[] | null> {
-  spanishKeys();
-  const picked = await groupMultiselect({ message: "¿Qué skills instalo?", options: skillOptions(candidates), initialValues: ticked, required: false });
+  localKeys();
+  const picked = await groupMultiselect({ message: ui.menu.whichSkills, options: skillOptions(candidates), initialValues: ticked, required: false });
   return isCancel(picked) ? null : picked;
 }
 
@@ -129,9 +130,9 @@ export async function askSkills(candidates: Candidate[], ticked: string[]): Prom
  */
 export async function askReplace(own: string[]): Promise<boolean | null> {
   const answer = await confirm({
-    message: `El repo ya tiene su propia versión de: ${own.join(", ")}. ¿Las reemplazo por las del catálogo? Su project.md se conserva.`,
-    active: "Sí, reemplazar",
-    inactive: "No, dejarlas fuera",
+    message: ui.menu.replace(own),
+    active: ui.menu.replaceYes,
+    inactive: ui.menu.replaceNo,
   });
   return isCancel(answer) ? null : answer;
 }
@@ -146,13 +147,13 @@ export type Place = "pr" | "here";
  * @example await askPlace("main") // "pr"
  */
 export async function askPlace(base: string): Promise<Place | null> {
-  spanishKeys();
+  localKeys();
   const answer = await select<Place>({
-    message: "¿Dónde aplico los cambios?",
+    message: ui.menu.where,
     initialValue: "pr",
     options: [
-      { value: "pr", label: "En un PR nuevo", hint: `recomendado · parte de origin/${base}, no toca tu rama ni tus archivos` },
-      { value: "here", label: "En la rama actual, sin commit", hint: "los revisas con git diff y haces commit tú" },
+      { value: "pr", label: ui.menu.inPr, hint: ui.menu.inPrHint(base) },
+      { value: "here", label: ui.menu.inHere, hint: ui.menu.inHereHint },
     ],
   });
   return isCancel(answer) ? null : answer;

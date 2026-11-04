@@ -1,5 +1,7 @@
 # agent-kitchen
 
+[English](README.en.md)
+
 Un solo comando para instalar, actualizar y revisar lo que un repo usa para trabajar con agentes: el flujo de issues con sus skills, las skills generales, las sesiones de Claude en la nube y las barandas de seguridad.
 
 ```sh
@@ -54,6 +56,7 @@ npx agent-kitchen apply --verbose              # muestra la salida de cada herra
 npx agent-kitchen apply --skip agent-cloud-kit    # deja fuera una pieza (o varias, con comas)
 npx agent-kitchen apply --pieces               # cambia qué piezas usa el repo (solo en una terminal)
 npx agent-kitchen doctor                       # revisa cada pieza con su propio doctor
+npx agent-kitchen apply --lang en              # la terminal en inglés (o AGENT_KITCHEN_LANG=en)
 ```
 
 - **Sin subcomando** (`npx agent-kitchen`) hace lo mismo que `apply`, por ahora, y avisa que se use `apply`. En una versión mayor pasará a solo mostrar el estado.
@@ -72,6 +75,10 @@ npx agent-kitchen doctor                       # revisa cada pieza con su propio
 **`--here`** trabaja en la rama actual, en tus archivos, como `ng update` o `copier update`. Avisa si ya tienes cambios sin commit o si tu rama está atrás de origin según el último fetch. Si los pasos cambiaron `package.json`, corre el `install` de tu gestor de paquetes al final. Te queda revisar el diff y hacer commit.
 
 **`doctor`** corre el doctor de cada herramienta en la versión del repo: `issue-flow doctor --json`, `skills-manager check` y `claude-repo-guard doctor --json`. Además revisa que `skills-manager` esté al menos en 1.2.0, que las skills del flujo estén en la tag de su CLI, qué labels del flujo le faltan a GitHub (con `·`), que `.claude/cloud.json` fije una versión exacta y, en macOS, `weakerNetworkIsolation`. En un repo con `package.json`, también la línea de `AGENTS.md` y, si hay `CLAUDE.md`, su `@AGENTS.md`. Lo que no está instalado o tiene una versión nueva solo se anota con `·`. Sale con 1 si algo falla (`✗`).
+
+**Idioma.** La terminal habla español por defecto. `--lang en`, o la variable `AGENT_KITCHEN_LANG=en`, la pasa a inglés; `--lang` gana sobre la variable, y `LANG` no se mira. Lo que queda en el repo no cambia de idioma: el commit y el PR de `--pr`, la línea de `AGENTS.md` y las opciones de `claude-repo-guard`. Los textos están en `src/texts/es.ts` y `src/texts/en.ts`, con el mismo tipo; un test revisa que tengan las mismas claves.
+
+**Kuro.** `apply` y `doctor` terminan con un bloque junto a Kuro, el ninja cocinero de issue-flow: cómo fue, qué falta y el comando siguiente. Los errores que cortan el comando salen igual, en stderr. Kuro solo aparece en una terminal, el color se apaga con `NO_COLOR`, y `"art": false` en `.agents/kitchen.json` o en `.agents/flow.json` lo quita.
 
 ## Sumar una pieza
 

@@ -14,6 +14,7 @@
 import { type Candidate, type Check, type Context, FLOW_CATALOG, FLOW_PACKAGE, GENERAL_CATALOGS, type PieceStatus, SKILLS_MANIFEST, type SkillPick, type Step } from "../piece.js";
 import { isObject, readJson } from "../repo.js";
 import { catalogSkills, lockedSkills, manifestCatalogs, ownSkills, pinCatalog, skillsManagerSpec, updateSkills } from "../skills-files.js";
+import { ui } from "../texts/index.js";
 import { captureNpx, compareVersions, latestTag, npmLatest, runNpx } from "../tools.js";
 import { flowVersion } from "./issue-flow.js";
 
@@ -139,9 +140,9 @@ export function keepOwn(pick: SkillPick, own: string[]): SkillPick {
 async function install(context: Context, pick: SkillPick): Promise<boolean> {
   const flow = flowVersion(context.root);
   const picked = flow === null ? pick.picked.filter((id) => catalogOf(id) !== FLOW_CATALOG) : pick.picked;
-  if (picked.length < pick.picked.length) context.note("sin las skills del flujo, porque issue-flow no está instalado");
+  if (picked.length < pick.picked.length) context.note(ui.pieces.skills.withoutFlow);
   if (picked.length === 0) {
-    context.note("ninguna skill que instalar");
+    context.note(ui.pieces.skills.none);
     return true;
   }
   const spec = skillsManagerSpec(context.root);
@@ -149,12 +150,12 @@ async function install(context: Context, pick: SkillPick): Promise<boolean> {
   const args = [spec, command, ...catalogArgs(flow), "--select", picked.join(","), ...(pick.replace.length === 0 ? [] : ["--replace", pick.replace.join(",")])];
   const run = await runNpx(context.root, args);
   if (!run.ok) {
-    context.fail(`skills-manager no instaló las skills; corre 'npx ${args.join(" ")}'.`, run.output);
+    context.fail(ui.pieces.skills.installFailed(`npx ${args.join(" ")}`), run.output);
     return false;
   }
   const names = pick.candidates.filter((candidate) => picked.includes(candidate.id)).map((candidate) => candidate.name);
-  context.note(names.length === 0 ? `${picked.length} skills` : names.join(", "));
-  if (pick.replace.length > 0) context.note(`reemplazadas (con su project.md): ${pick.replace.join(", ")}`);
+  context.note(names.length === 0 ? ui.pieces.skills.count(picked.length) : names.join(", "));
+  if (pick.replace.length > 0) context.note(ui.pieces.skills.replaced(pick.replace));
   return true;
 }
 
@@ -182,7 +183,7 @@ async function updateStep(root: string, catalog: string, ref: string | null): Pr
       if (ref !== null) pinCatalog(context.root, catalog, `v${latest}`);
       const failed = await updateSkills(context.root, behind.map((skill) => skill.name));
       if (failed === null) return true;
-      context.fail(`skills-manager no actualizó ${catalog}; corre '${failed.command}' y luego agent-kitchen apply otra vez.`, failed.run.output);
+      context.fail(ui.pieces.skills.updateFailed(catalog, failed.command), failed.run.output);
       return false;
     },
   };
@@ -207,7 +208,8 @@ async function offeredFlow(root: string, withFlow: boolean): Promise<string | nu
  * @example (await skillsStatus(root, true)).state // "6 instaladas"
  */
 export async function skillsStatus(root: string, withFlow: boolean): Promise<PieceStatus> {
-  const summary = "skills del flujo, planes y auditorías";
+  const said = ui.pieces.skills;
+  const summary = said.summary;
   const flow = await offeredFlow(root, withFlow);
   const candidatesRead = readCandidates(root, flow);
   if (readJson(root, SKILLS_MANIFEST) === null) {
@@ -219,7 +221,7 @@ export async function skillsStatus(root: string, withFlow: boolean): Promise<Pie
     const offered = candidates ?? fallback;
     const catalogs = [...new Set(offered.map((candidate) => candidate.catalog))];
     const skills = { candidates: offered, picked: offered.map((candidate) => candidate.id), replace: [] };
-    const state = candidates === null ? "no instaladas (no se pudieron leer los catálogos)" : "no instaladas";
+    const state = `${said.notInstalled}${candidates === null ? said.catalogsUnread : ""}`;
     return { name: NAME, summary, installed: false, state, steps: [{ piece: NAME, checked: true, downloads: [], text: { kind: "skills-install", count: offered.length, catalogs }, skills, run: (context) => install(context, skills) }] };
   }
   const general = manifestCatalogs(root).filter((source) => source.catalog !== FLOW_CATALOG);
@@ -233,8 +235,8 @@ export async function skillsStatus(root: string, withFlow: boolean): Promise<Pie
   }
   const count = manifestCatalogs(root).reduce((total, source) => total + catalogSkills(root, source.catalog).length, 0);
   const behind = steps.filter((step) => step.checked).length;
-  const unread = candidates === null ? " (no se pudieron leer los catálogos)" : "";
-  return { name: NAME, summary, installed: true, state: `${count} instaladas${behind > 0 ? ", algunas atrasadas" : ", al día"}${unread}`, steps };
+  const unread = candidates === null ? said.catalogsUnread : "";
+  return { name: NAME, summary, installed: true, state: `${said.installed(count, behind > 0)}${unread}`, steps };
 }
 
 /**
@@ -244,9 +246,9 @@ export async function skillsStatus(root: string, withFlow: boolean): Promise<Pie
  * @example (await skillsChecks(root))[0].status // "ok"
  */
 export async function skillsChecks(root: string): Promise<Check[]> {
-  if (readJson(root, SKILLS_MANIFEST) === null) return [{ name: NAME, status: "info", detail: "no instaladas" }];
+  if (readJson(root, SKILLS_MANIFEST) === null) return [{ name: NAME, status: "info", detail: ui.pieces.skills.notInstalled }];
   const spec = skillsManagerSpec(root);
   const result = await captureNpx(root, [spec, "check"]);
-  if (result?.status === 0) return [{ name: NAME, status: "ok", detail: "skills-manager check pasa" }];
-  return [{ name: NAME, status: "fail", detail: `el disco, el lock y el manifiesto no coinciden: corre 'npx ${spec} check'` }];
+  if (result?.status === 0) return [{ name: NAME, status: "ok", detail: ui.pieces.skills.checkOk }];
+  return [{ name: NAME, status: "fail", detail: ui.pieces.skills.checkFailed(`npx ${spec} check`) }];
 }

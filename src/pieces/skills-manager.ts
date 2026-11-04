@@ -10,6 +10,7 @@
 import { type Check, type Context, type PieceStatus, SKILLS_MANAGER, SKILLS_MANIFEST } from "../piece.js";
 import { dependencyVersion, installedVersion, readJson, setDependency, writeJson } from "../repo.js";
 import { compareVersions, isRelease } from "../tools.js";
+import { ui } from "../texts/index.js";
 import type { StepText } from "../texts/step-text.js";
 
 /** The piece's name, as `--skip` takes it. */
@@ -67,7 +68,9 @@ function applies(root: string, withSkills: boolean, flowComing: boolean): boolea
  */
 export function skillsManagerStatus(root: string, withSkills: boolean, flowComing: boolean): PieceStatus | null {
   if (!applies(root, withSkills, flowComing)) return null;
-  const summary = "el CLI de las skills, que corre agent-kitchen";
+  const said = ui.pieces.skillsManager;
+  const common = ui.pieces.common;
+  const summary = said.summary;
   if (readJson(root, "package.json") === null) {
     const make = {
       piece: NAME,
@@ -77,20 +80,20 @@ export function skillsManagerStatus(root: string, withSkills: boolean, flowComin
       run: async (context: Context) => {
         if (readJson(context.root, "package.json") === null) writeJson(context.root, "package.json", { private: true, devDependencies: { [SKILLS_MANAGER]: MIN_VERSION } });
         else if (pinned(context.root).kind === "missing") setDependency(context.root, SKILLS_MANAGER, MIN_VERSION);
-        context.note(`${SKILLS_MANAGER} ${MIN_VERSION} en package.json`);
+        context.note(ui.pieces.common.inPackage(SKILLS_MANAGER, MIN_VERSION));
         return true;
       },
     };
-    return { name: NAME, summary, installed: false, state: "no hay package.json", steps: [make] };
+    return { name: NAME, summary, installed: false, state: said.noPackage, steps: [make] };
   }
   const now = pinned(root);
   if (now.kind === "other") {
-    const old = now.runs !== null && below(now.runs) ? `; corre ${now.runs}, bajo ${MIN_VERSION}` : "";
-    return { name: NAME, summary, installed: true, state: `package.json tiene ${now.spec}, no una versión exacta; no se toca${old}`, steps: [] };
+    const old = now.runs !== null && below(now.runs) ? now.runs : null;
+    return { name: NAME, summary, installed: true, state: said.rangeKept(now.spec, old, MIN_VERSION), steps: [] };
   }
-  if (now.kind === "exact" && !below(now.version)) return { name: NAME, summary, installed: true, state: `${now.version}, al día`, steps: [] };
+  if (now.kind === "exact" && !below(now.version)) return { name: NAME, summary, installed: true, state: common.upToDate(now.version), steps: [] };
   const text: StepText = now.kind === "missing" ? { kind: "skills-manager-add", version: MIN_VERSION } : { kind: "skills-manager-bump", from: now.version, to: MIN_VERSION };
-  const state = now.kind === "missing" ? "no está en package.json" : `${now.version}, bajo ${MIN_VERSION}`;
+  const state = now.kind === "missing" ? said.missing : said.below(now.version, MIN_VERSION);
   const step = {
     piece: NAME,
     checked: true,
@@ -100,8 +103,8 @@ export function skillsManagerStatus(root: string, withSkills: boolean, flowComin
       const current = pinned(context.root);
       if (current.kind === "missing" || (current.kind === "exact" && below(current.version))) {
         setDependency(context.root, SKILLS_MANAGER, MIN_VERSION);
-        context.note(`${SKILLS_MANAGER} ${MIN_VERSION} en package.json`);
-      } else context.note("package.json ya tenía una versión que sirve");
+        context.note(ui.pieces.common.inPackage(SKILLS_MANAGER, MIN_VERSION));
+      } else context.note(ui.pieces.common.alreadyFine);
       return true;
     },
   };
@@ -116,12 +119,13 @@ export function skillsManagerStatus(root: string, withSkills: boolean, flowComin
  */
 export function skillsManagerChecks(root: string): Check[] {
   if (!applies(root, false, false)) return [];
+  const said = ui.pieces.skillsManager;
   const now = pinned(root);
-  if (now.kind === "missing") return [{ name: NAME, status: "info", detail: `no está en package.json; corre npx agent-kitchen apply para fijar ${MIN_VERSION}` }];
+  if (now.kind === "missing") return [{ name: NAME, status: "info", detail: said.checkMissing(MIN_VERSION) }];
   if (now.kind === "exact")
     return below(now.version)
-      ? [{ name: NAME, status: "fail", detail: `${now.version}, bajo ${MIN_VERSION}, el mínimo de agent-kitchen: corre npx agent-kitchen apply` }]
-      : [{ name: NAME, status: "ok", detail: `${now.version} (mínimo ${MIN_VERSION})` }];
-  if (now.runs !== null && below(now.runs)) return [{ name: NAME, status: "fail", detail: `${now.spec} corre ${now.runs}, bajo ${MIN_VERSION}, el mínimo de agent-kitchen: sube el rango` }];
-  return [{ name: NAME, status: "ok", detail: `${now.spec}${now.runs === null ? "" : `, corre ${now.runs}`}` }];
+      ? [{ name: NAME, status: "fail", detail: said.checkBelow(now.version, MIN_VERSION) }]
+      : [{ name: NAME, status: "ok", detail: said.checkOk(now.version, MIN_VERSION) }];
+  if (now.runs !== null && below(now.runs)) return [{ name: NAME, status: "fail", detail: said.checkRangeBelow(now.spec, now.runs, MIN_VERSION) }];
+  return [{ name: NAME, status: "ok", detail: said.checkRange(now.spec, now.runs) }];
 }

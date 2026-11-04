@@ -14,6 +14,8 @@ export interface Output {
   stdout: (text: string) => void;
   stderr: (text: string) => void;
   interactive: boolean;
+  /** Whether each stream is a terminal, for Kuro and color; absent means neither is. */
+  terminal?: { stdout: boolean; stderr: boolean };
 }
 
 /**
@@ -26,6 +28,7 @@ export function processOutput(): Output {
     stdout: (text) => process.stdout.write(text),
     stderr: (text) => process.stderr.write(text),
     interactive: Boolean(process.stdin.isTTY && process.stdout.isTTY),
+    terminal: { stdout: Boolean(process.stdout.isTTY), stderr: Boolean(process.stderr.isTTY) },
   };
 }
 

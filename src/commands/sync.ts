@@ -26,7 +26,9 @@
  * file is written; `--yes`, `--dry-run` and `--skip` never write it.
  * `--pieces` (terminal only, not with `--yes` or `--dry-run`) first asks which pieces the repo
  * uses, writes all of them to the file, and then goes on as usual.
+ * The run ends in a block with Kuro (banner.ts): how it went and what is left to do.
  */
+import { type Block, show } from "../banner.js";
 import { DECIDABLE, decide, DECISIONS, off, readDecisions, type Saved, undecided, writeDecisions } from "../decisions.js";
 import { behindUpstream, baseBranch, changedPaths, cloneFromOrigin, originUrl, publish, removeClone } from "../pr-clone.js";
 import { askPath, askPieces, askPlace, askReplace, askSkills, askSteps, type Place } from "../menu.js";
@@ -101,12 +103,12 @@ async function statusesOf(root: string, skip: string[]): Promise<PieceStatus[]> 
 function printStatus(statuses: PieceStatus[], decidedOff: string[], out: Output): void {
   const width = Math.max(...statuses.map((status) => status.name.length), ...decidedOff.map((name) => name.length));
   const stateWidth = Math.max(...statuses.map((status) => status.state.length));
-  out.stdout("\nEste repo tiene:\n");
+  out.stdout(`\n${ui.status.heading}\n`);
   for (const name of PIECES) {
     for (const status of statuses.filter((each) => each.name === name)) out.stdout(`  ${status.name.padEnd(width)}  ${status.state.padEnd(stateWidth)}  · ${status.summary}\n`);
-    if (decidedOff.includes(name)) out.stdout(`  ${name.padEnd(width)}  fuera por decisión del repo\n`);
+    if (decidedOff.includes(name)) out.stdout(`  ${name.padEnd(width)}  ${ui.status.offByRepo}\n`);
   }
-  if (decidedOff.length > 0) out.stdout(`\nPara cambiar qué piezas usa el repo: agent-kitchen apply --pieces (o edita ${DECISIONS}).\n`);
+  if (decidedOff.length > 0) out.stdout(`\n${ui.status.changePieces(DECISIONS)}\n`);
   out.stdout("\n");
 }
 
@@ -234,7 +236,6 @@ async function askAboutSkills(root: string, step: Step, chooseSkills: boolean): 
 async function chooseSteps(root: string, steps: Step[], options: SyncOptions, out: Output): Promise<Step[] | "leave" | null> {
   const suggested = steps.filter((step) => step.checked);
   if (options.yes) {
-    if (suggested.length === 0) out.stdout(`${ui.onlyOptional(steps.map(stepLabel))}\n`);
     for (const step of suggested) keepOwnSkills(root, step, out);
     return suggested;
   }
@@ -302,7 +303,7 @@ type Workplace = { kind: "here"; root: string } | { kind: "pr"; root: string; re
  */
 async function choosePlace(root: string, options: SyncOptions, out: Output): Promise<Place | null> {
   if (options.pr) {
-    if (originUrl(root) === null) throw new KitError("--pr necesita un remoto origin, y este repo no tiene. Usa --here.");
+    if (originUrl(root) === null) throw new KitError(ui.cli.prNeedsOrigin);
     return "pr";
   }
   if (options.here || options.yes || options.dryRun || !out.interactive || originUrl(root) === null) return "here";
@@ -317,9 +318,9 @@ async function choosePlace(root: string, options: SyncOptions, out: Output): Pro
  */
 function warnHere(root: string, out: Output): void {
   const changed = changedPaths(root);
-  if (changed.length > 0) warn(out, `ya tienes cambios sin commit (${changed.length === 1 ? changed[0] : `${changed.length} archivos`}); los de apply se mezclarán con ellos.`);
+  if (changed.length > 0) warn(out, ui.here.dirty(changed));
   const behind = behindUpstream(root);
-  if (behind > 0) warn(out, `tu rama está ${behind} ${behind === 1 ? "commit" : "commits"} atrás de origin, según el último fetch; corre git pull antes, o usa --pr.`);
+  if (behind > 0) warn(out, ui.here.behind(behind));
 }
 
 /**
@@ -332,16 +333,16 @@ function warnHere(root: string, out: Output): void {
  */
 export async function sync(options: SyncOptions, out: Output): Promise<number> {
   const unknown = options.skip.find((name) => !pieceNames().includes(name));
-  if (unknown !== undefined) throw new UsageError(`no existe la pieza ${unknown}; son ${pieceNames().join(", ")}.`);
-  if (options.yes && options.dryRun) throw new UsageError("usa --yes o --dry-run, no los dos.");
-  if (options.pr && options.here) throw new UsageError("usa --pr o --here, no los dos.");
-  if (options.pieces && (options.yes || options.dryRun)) throw new UsageError("usa --pieces solo, sin --yes ni --dry-run.");
-  if (options.pieces && !out.interactive) throw new UsageError("--pieces pregunta qué piezas usa el repo; córrelo en una terminal.");
+  if (unknown !== undefined) throw new UsageError(ui.cli.unknownPiece(unknown, pieceNames()));
+  if (options.yes && options.dryRun) throw new UsageError(ui.cli.yesAndDryRun);
+  if (options.pr && options.here) throw new UsageError(ui.cli.prAndHere);
+  if (options.pieces && (options.yes || options.dryRun)) throw new UsageError(ui.cli.piecesAlone);
+  if (options.pieces && !out.interactive) throw new UsageError(ui.cli.piecesNeedsTerminal);
   const root = mainCheckout(options.cwd, "agent-kitchen apply");
   setVerbose(options.verbose);
   const place = await choosePlace(root, options, out);
   if (place === null) {
-    out.stdout("No se cambió nada.\n");
+    out.stdout(`${ui.nothingChanged}\n`);
     return 1;
   }
   if (place === "here") {
@@ -373,7 +374,7 @@ async function applyIn(work: Workplace, options: SyncOptions, out: Output): Prom
   for (const warning of saved?.warnings ?? []) warn(out, warning);
   if (options.pieces) {
     if (!(await choosePieces(root, saved, pr, out))) {
-      out.stdout("No se cambió nada.\n");
+      out.stdout(`${ui.nothingChanged}\n`);
       return 0;
     }
     saved = readDecisions(root);
@@ -402,35 +403,30 @@ async function applyIn(work: Workplace, options: SyncOptions, out: Output): Prom
   printStatus(statuses, off(saved).filter((name) => !options.skip.includes(name)), out);
   const steps = statuses.flatMap((status) => status.steps);
   const progress = progressFor(out, options.verbose);
+  // The next step for the cloud, said at the end of a run in the checkout; read then, since a step may install it.
+  const cloud = (): Pick<Block, "next"> => (work.kind === "here" && !options.dryRun ? cloudNext(root, skip) : {});
   // In a clone, a run that only wrote the decisions file still ends in a PR.
-  const endWithoutSteps = async (): Promise<number> => {
-    if (work.kind === "pr") return wrote ? openPr(work, commitLabels([], true), [], progress, out) : 0;
-    if (!options.dryRun) printCloudNext(root, skip, out);
+  const endWithoutSteps = async (title: string, lines: string[] = []): Promise<number> => {
+    if (work.kind === "pr" && wrote) {
+      out.stdout(`${[title, ...lines].join("\n")}\n`);
+      return openPr(work, commitLabels([], true), [], progress, out);
+    }
+    show(out, { mood: "ok", title, lines, ...cloud() }, root);
     return 0;
   };
   if (steps.length === 0) {
     if (saves) wrote = saveDecisions(root, saved, statuses, [], pr, out) || wrote;
-    out.stdout(`${ui.upToDate}\n`);
-    return endWithoutSteps();
+    return endWithoutSteps(ui.upToDate);
   }
   const chosen = await chooseSteps(root, steps, options, out);
   if (saves && Array.isArray(chosen)) wrote = saveDecisions(root, saved, statuses, chosen, pr, out) || wrote;
-  if (chosen === "leave") {
-    out.stdout(noStepsMessage("leave", wrote));
-    return endWithoutSteps();
-  }
+  if (chosen === "leave") return endWithoutSteps(ui.noSteps("leave", wrote));
   if (chosen === null) {
-    if (wrote) {
-      out.stdout(noStepsMessage("leave", wrote));
-      return endWithoutSteps();
-    }
-    if (!options.dryRun && out.interactive) warn(out, "no se cambió nada.");
+    if (wrote) return endWithoutSteps(ui.noSteps("leave", wrote));
+    if (!options.dryRun && out.interactive) warn(out, ui.nothingChangedWarning);
     return options.dryRun || !out.interactive ? 0 : 1;
   }
-  if (chosen.length === 0) {
-    if (!options.yes) out.stdout(noStepsMessage("none", wrote));
-    return endWithoutSteps();
-  }
+  if (chosen.length === 0) return options.yes ? endWithoutSteps(ui.allSet, [ui.onlyOptional(steps.map(stepLabel))]) : endWithoutSteps(ui.noSteps("none", wrote));
   const pkgBefore = packageText(root);
   const failedSteps: Step[] = [];
   for (const step of chosen) {
@@ -440,19 +436,19 @@ async function applyIn(work: Workplace, options: SyncOptions, out: Output): Prom
   if (work.kind === "pr") return openPr(work, commitLabels(chosen.filter((step) => !failedSteps.includes(step)), wrote), failed, progress, out);
   const installFailed = packageText(root) !== pkgBefore ? !(await install(root, progress, out)) : false;
   if (installFailed) failed.push(phrases({ kind: "install-deps", manager: packageManager(root) }).menu);
-  out.stdout(`\n${ui.summary(failed)} ${ui.next(installFailed ? packageManager(root) : null)}\n`);
-  if (!options.dryRun) printCloudNext(root, skip, out);
+  show(out, { mood: failed.length === 0 ? "ok" : "error", title: ui.summary(failed), lines: [ui.next(installFailed ? packageManager(root) : null)], ...cloud() }, root);
   return failed.length === 0 ? 0 : 1;
 }
 
 /**
- * Says what to run next for the cloud, if agent-cloud-kit is installed and was not left out.
+ * What to run next for the cloud, if agent-cloud-kit is installed and was not left out.
  * @param root - The repo.
  * @param skip - The pieces left out.
- * @param out - Where to write.
+ * @returns The block's `next`, or nothing.
  */
-function printCloudNext(root: string, skip: string[], out: Output): void {
-  if (!skip.includes(CLOUD) && readJson(root, ".claude/cloud.json") !== null) out.stdout(`${ui.cloudNext}\n`);
+function cloudNext(root: string, skip: string[]): Pick<Block, "next"> {
+  if (skip.includes(CLOUD) || readJson(root, ".claude/cloud.json") === null) return {};
+  return { next: { label: ui.cloudNext, command: "npx agent-cloud-kit prepare" } };
 }
 
 /**
@@ -482,31 +478,33 @@ async function install(root: string, progress: Progress, out: Output): Promise<b
  * @returns 0, or 1 if a step, the install, git or the PR failed.
  */
 async function openPr(work: Extract<Workplace, { kind: "pr" }>, done: string[], failed: string[], progress: Progress, out: Output): Promise<number> {
-  const summary = ui.summary(failed);
+  const end = (block: Block): void => show(out, block, work.root);
   const before = changedPaths(work.root);
   if (before.length === 0) {
-    out.stdout(`\n${summary} ${ui.noChanges}\n`);
+    end({ mood: failed.length === 0 ? "ok" : "error", title: ui.summary(failed), lines: [ui.noChanges] });
     return failed.length === 0 ? 0 : 1;
   }
   if (failed.length > 0) {
     work.keep = true;
-    out.stdout(`\n${summary} ${ui.prNotOpened("step", work.root)}\n`);
+    end({ mood: "error", title: ui.summary(failed), lines: [ui.prNotOpened("step", work.root)] });
     return 1;
   }
   // A clone starts without node_modules, and the repo's hooks may need them.
   if (packageText(work.root) !== null && !(await install(work.root, progress, out))) {
     work.keep = true;
-    out.stdout(`\n${summary} ${ui.prNotOpened("install", work.root)}\n`);
+    end({ mood: "error", title: ui.summary([phrases({ kind: "install-deps", manager: packageManager(work.root) }).menu]), lines: [ui.prNotOpened("install", work.root)] });
     return 1;
   }
   // Only a changed package.json brings the lockfile along; an install that only rewrites it stays out.
   const paths = before.includes("package.json") ? changedPaths(work.root) : before;
-  out.stdout(`\n${summary} ${ui.changes}\n${paths.map((path) => `  ${path}`).join("\n")}\n`);
+  out.stdout(`\n${ui.changes}\n${paths.map((path) => `  ${path}`).join("\n")}\n`);
   const result = await publish(work.repo, work.root, { base: work.base, steps: done, paths });
-  for (const line of result.lines) out.stdout(`${line}\n`);
-  if (!result.pushed) {
-    work.keep = true;
-    out.stdout(`${ui.prNotOpened("git", work.root)}\n`);
+  if (result.url !== undefined) {
+    end({ mood: "ok", title: ui.pr.opened, rows: [["PR", result.url]] });
+    return 0;
   }
-  return result.ok ? 0 : 1;
+  if (!result.pushed) work.keep = true;
+  const next = result.command === undefined ? {} : { next: { label: ui.pr.byHand, command: result.command } };
+  end({ mood: "error", title: result.problem ?? ui.summary([]), lines: [...result.details, ...(result.pushed ? [] : [ui.prNotOpened("git", work.root)])], ...next });
+  return 1;
 }

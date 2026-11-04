@@ -92,7 +92,7 @@ test("--pr --yes works in a clone, pushes a new branch, opens the PR in draft an
   const pr = repo.calls().find((args) => args[0].startsWith("@ramon-sg/github-rest@"));
   assert.deepEqual(pr.slice(0, 7), ["@ramon-sg/github-rest@0.2.1", "pr", "create", "--head", today(), "--base", "main"]);
   assert.ok(pr.includes("--draft"), pr.join(" "));
-  assert.match(r.out, /PR en draft: https:\/\/github\.com\/o\/r\/pull\/7/);
+  assert.match(r.out, /\[ok\] PR en draft abierto\.\n\n  PR  https:\/\/github\.com\/o\/r\/pull\/7\n/);
   assert.match(r.out, /copia temporal de origin\/main/);
 });
 
@@ -290,7 +290,7 @@ test("publish commits only the files it is given, taken literally", async () => 
 
   const result = await publish(repo.main, clone, { base: "main", steps: ["Paso"], paths: ["g[1].txt"] });
 
-  assert.equal(result.pushed, true, result.lines.join("\n"));
+  assert.equal(result.pushed, true, [result.problem, ...result.details].join("\n"));
   assert.deepEqual(repo.git("show", "--name-only", "--format=", `origin/${today()}`).split("\n"), ["g[1].txt"]);
 });
 

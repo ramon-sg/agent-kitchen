@@ -8,6 +8,7 @@
  */
 import type { Check, PieceStatus, Step } from "../piece.js";
 import { readJson, writeJson } from "../repo.js";
+import { ui } from "../texts/index.js";
 import { compareSemver, isExactVersion, npmLatestExact, runNpx } from "../tools.js";
 
 /** The piece's name, as `--skip` takes it. */
@@ -46,7 +47,7 @@ function stepFor(config: Record<string, unknown> | null, latest: string | null):
       run: async (context) => {
         const run = await runNpx(context.root, [spec, "init"]);
         if (run.ok) return true;
-        context.fail(`agent-cloud-kit init falló; corre 'npx ${spec} init'.`, run.output);
+        context.fail(ui.pieces.common.failed("agent-cloud-kit init", `npx ${spec} init`), run.output);
         return false;
       },
     };
@@ -64,7 +65,7 @@ function stepFor(config: Record<string, unknown> | null, latest: string | null):
       const spec = `${PACKAGE}@${latest}`;
       const run = await runNpx(context.root, [spec, "init"]);
       if (run.ok) return true;
-      context.fail(`agent-cloud-kit init falló; corre 'npx ${spec} init'.`, run.output);
+      context.fail(ui.pieces.common.failed("agent-cloud-kit init", `npx ${spec} init`), run.output);
       return false;
     },
   };
@@ -81,9 +82,10 @@ export async function cloudStatus(root: string): Promise<PieceStatus> {
   const latest = await npmLatestExact(PACKAGE);
   const version = pinned(config);
   const step = stepFor(config, latest);
-  const known = latest === null ? " (npm no responde)" : "";
-  const state = config === null ? `no instalado${known}` : version === null ? `${CONFIG} no fija versión` : step === null ? `${version}, al día${known}` : `${version}, hay ${latest ?? "?"}`;
-  return { name: NAME, summary: "sesiones en la nube de Claude", installed: config !== null, state, steps: step === null ? [] : [step] };
+  const said = ui.pieces.common;
+  const known = latest === null ? said.npmDown : "";
+  const state = config === null ? `${said.notInstalled}${known}` : version === null ? ui.pieces.cloud.unpinned(CONFIG) : step === null ? `${said.upToDate(version)}${known}` : said.behind(version, latest ?? "?");
+  return { name: NAME, summary: ui.pieces.cloud.summary, installed: config !== null, state, steps: step === null ? [] : [step] };
 }
 
 /**
@@ -94,10 +96,10 @@ export async function cloudStatus(root: string): Promise<PieceStatus> {
  */
 export async function cloudChecks(root: string): Promise<Check[]> {
   const config = readJson(root, CONFIG);
-  if (config === null) return [{ name: NAME, status: "info", detail: "no instalado" }];
+  if (config === null) return [{ name: NAME, status: "info", detail: ui.pieces.common.notInstalled }];
   const version = pinned(config);
   const latest = await npmLatestExact(PACKAGE);
-  if (version === null) return [{ name: NAME, status: "fail", detail: `${CONFIG} no fija una versión exacta: pon en "version" la que se usa, como "${latest ?? "1.0.0"}"` }];
-  if (latest !== null && compareSemver(latest, version) > 0) return [{ name: NAME, status: "info", detail: `${version}, hay ${latest}: corre npx agent-kitchen apply` }];
+  if (version === null) return [{ name: NAME, status: "fail", detail: ui.pieces.cloud.checkUnpinned(CONFIG, latest ?? "1.0.0") }];
+  if (latest !== null && compareSemver(latest, version) > 0) return [{ name: NAME, status: "info", detail: ui.pieces.common.behindRun(version, latest) }];
   return [{ name: NAME, status: "ok", detail: version }];
 }

@@ -5,6 +5,7 @@
  * always kept up to date, never opted in or out.
  */
 import { isObject, readJson, writeJson } from "./repo.js";
+import { ui } from "./texts/index.js";
 import type { PieceStatus, Step } from "./piece.js";
 import { NAME as AGENTS_MD } from "./pieces/agents-md.js";
 import { NAME as CLOUD } from "./pieces/cloud.js";
@@ -24,7 +25,7 @@ export interface Saved {
   pieces: Record<string, boolean>;
   /** The whole file, to write back without losing what is not ours. */
   raw: Record<string, unknown>;
-  /** What was wrong in the file, in Spanish, for the user. */
+  /** What was wrong in the file, in the interface's language, for the user. */
   warnings: string[];
 }
 
@@ -45,7 +46,7 @@ export function readDecisions(root: string): Saved | null {
     if (!(name in stored)) continue;
     const value = stored[name];
     if (typeof value === "boolean") pieces[name] = value;
-    else warnings.push(`${DECISIONS}: "${name}" no es true ni false; se trata como sin decisión.`);
+    else warnings.push(ui.repo.notBoolean(DECISIONS, name));
   }
   return { pieces, raw, warnings };
 }
