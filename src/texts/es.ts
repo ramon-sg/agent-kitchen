@@ -142,7 +142,7 @@ export const es: Catalog = {
     if (why === "leave") return wrote ? "No corrí ningún paso; solo guardé qué piezas usa el repo." : "No se cambió nada.";
     return wrote ? "No elegiste pasos; solo guardé qué piezas usa el repo." : "No elegiste nada; no se cambió nada.";
   },
-  cloning: (base) => `Trabajo en una copia temporal de origin/${base}; tu copia no se toca.`,
+  cloning: (base) => `Trabajo en una copia temporal de origin/${base}; tu rama y tus archivos no se tocan.`,
   changes: "Cambios del PR:",
   noChanges: "No cambió ningún archivo: no hay PR que abrir.",
   prNotOpened: (why, clone) => {
