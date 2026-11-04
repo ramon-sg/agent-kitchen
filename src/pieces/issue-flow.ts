@@ -16,13 +16,11 @@
 import { type Check, type Context, FLOW_CATALOG, FLOW_CONFIG, FLOW_PACKAGE, type PieceStatus, type Step } from "../piece.js";
 import { dependencyVersion, isObject, readJson, setDependency } from "../repo.js";
 import { catalogSkills, manifestCatalogs, pinCatalog, updateSkills } from "../skills-files.js";
+import { ui } from "../texts/index.js";
 import { captureNpx, compareVersions, isRelease, npmDependencies, npmLatest, runNpx } from "../tools.js";
 
 /** The piece's name, as `--skip` takes it. */
 export const NAME = "issue-flow";
-
-/** How the catalog's ref is named when it is off. */
-const SKILLS_CATALOG_LABEL = "el catálogo";
 
 /** The first version whose `doctor` prints `--json`. */
 const JSON_DOCTOR = "0.2.0";
@@ -82,9 +80,9 @@ export function flowVersion(root: string): string | null {
  */
 function skillsOff(root: string, version: string): string[] {
   const tag = `v${version}`;
-  const off = catalogSkills(root, FLOW_CATALOG).filter((skill) => skill.tag !== tag).map((skill) => `${skill.name} en ${skill.tag ?? "sin tag"}`);
+  const off = catalogSkills(root, FLOW_CATALOG).filter((skill) => skill.tag !== tag).map((skill) => ui.pieces.flow.skillAt(skill.name, skill.tag));
   const source = manifestCatalogs(root).find((item) => item.catalog === FLOW_CATALOG);
-  return source !== undefined && source.ref !== tag ? [...off, `${SKILLS_CATALOG_LABEL} en ${source.ref ?? "la última"}`] : off;
+  return source !== undefined && source.ref !== tag ? [...off, ui.pieces.flow.catalogAt(source.ref)] : off;
 }
 
 /**
@@ -99,10 +97,10 @@ async function moveSkills(context: Context, version: string): Promise<boolean> {
   const names = catalogSkills(context.root, FLOW_CATALOG).map((skill) => skill.name);
   const failed = await updateSkills(context.root, names);
   if (failed === null) {
-    context.note(`skills del flujo en v${version}: ${names.join(", ")}`);
+    context.note(ui.pieces.flow.skillsMoved(version, names));
     return true;
   }
-  context.fail(`skills-manager no actualizó las skills del flujo; corre '${failed.command}' y luego agent-kitchen apply otra vez.`, failed.run.output);
+  context.fail(ui.pieces.flow.skillsFailed(failed.command), failed.run.output);
   return false;
 }
 
@@ -116,7 +114,7 @@ async function moveSkills(context: Context, version: string): Promise<boolean> {
 async function runFlow(context: Context, version: string, args: string[]): Promise<boolean> {
   const run = await runNpx(context.root, [`${FLOW_PACKAGE}@${version}`, ...args]);
   if (run.ok) return true;
-  context.fail(`issue-flow ${args[0] ?? ""} falló; corre 'npx ${FLOW_PACKAGE}@${version} ${args.join(" ")}'.`, run.output);
+  context.fail(ui.pieces.common.failed(`issue-flow ${args[0] ?? ""}`, `npx ${FLOW_PACKAGE}@${version} ${args.join(" ")}`), run.output);
   return false;
 }
 
@@ -132,7 +130,7 @@ async function applyFlow(context: Context, version: string): Promise<boolean> {
   const result = await captureNpx(context.root, [`${FLOW_PACKAGE}@${version}`, "apply", "--yes", "--json"]);
   const output = `${result?.out ?? ""}${result?.err ?? ""}`;
   if (result === null || result.status !== 0) {
-    context.fail(`issue-flow apply falló; corre '${retry}'.`, output);
+    context.fail(ui.pieces.common.failed("issue-flow apply", retry), output);
     return false;
   }
   let report: unknown;
@@ -142,7 +140,7 @@ async function applyFlow(context: Context, version: string): Promise<boolean> {
     report = null;
   }
   if (!isObject(report) || !Array.isArray(report.kept)) {
-    context.fail(`issue-flow apply no dijo qué hizo; corre '${retry}'.`, output);
+    context.fail(ui.pieces.flow.silent(retry), output);
     return false;
   }
   for (const line of report.kept) context.note(String(line));
@@ -215,7 +213,7 @@ async function missingLabels(root: string, version: string): Promise<string[] | 
 function labelsStep(version: string, missing: string[]): Step {
   return { piece: NAME, checked: true, downloads: [`${FLOW_PACKAGE}@${version}`], text: { kind: "flow-labels", missing }, run: async (context) => {
     if (flowVersion(context.root) !== version) {
-      context.note(`no se crearon: el repo no tiene issue-flow ${version}`);
+      context.note(ui.pieces.flow.labelsSkipped(version));
       return true;
     }
     return runFlow(context, version, ["labels", "sync"]);
@@ -250,11 +248,11 @@ function restStep(root: string, version: string, minimum: string): Step | null {
   const current = dependencyVersion(readJson(root, "package.json"), GITHUB_REST);
   if (!below(current)) return null;
   return { piece: NAME, checked: true, downloads: [], text: { kind: "github-rest-bump", from: current, to: minimum, flow: version }, run: async (context) => {
-    if (flowVersion(context.root) !== version) context.note(`no se subió: el repo no tiene issue-flow ${version}`);
-    else if (!below(dependencyVersion(readJson(context.root, "package.json"), GITHUB_REST))) context.note("package.json ya tenía una versión que sirve");
+    if (flowVersion(context.root) !== version) context.note(ui.pieces.flow.restSkipped(version));
+    else if (!below(dependencyVersion(readJson(context.root, "package.json"), GITHUB_REST))) context.note(ui.pieces.common.alreadyFine);
     else {
       setDependency(context.root, GITHUB_REST, minimum);
-      context.note(`${GITHUB_REST} ${minimum} en package.json`);
+      context.note(ui.pieces.common.inPackage(GITHUB_REST, minimum));
     }
     return true;
   } };
@@ -291,9 +289,10 @@ function stepFor(installed: string | null, latest: string | null, root: string, 
  * @example (await issueFlowStatus(root)).state // "0.1.0, hay 0.2.0"
  */
 export async function issueFlowStatus(root: string): Promise<PieceStatus> {
-  const summary = "rama, worktree y PR en draft por issue";
+  const said = ui.pieces.common;
+  const summary = ui.pieces.flow.summary;
   const spec = flowSpec(root);
-  if (spec !== null && !isRelease(spec)) return { name: NAME, summary, installed: true, state: `package.json tiene ${spec}, no una versión exacta; no se toca`, steps: [] };
+  if (spec !== null && !isRelease(spec)) return { name: NAME, summary, installed: true, state: said.notExactKept(spec), steps: [] };
   const installed = flowVersion(root);
   const latest = await npmLatest(FLOW_PACKAGE);
   const behind = installed !== null && latest !== null && compareVersions(latest, installed) > 0;
@@ -301,8 +300,8 @@ export async function issueFlowStatus(root: string): Promise<PieceStatus> {
   const [missing, checks, minimum] = await Promise.all([target === null ? [] : missingLabels(root, target), installed !== null && !behind && usesApply(installed) ? flowDoctor(root, installed, true) : null, target === null ? null : restMinimum(target)]);
   const step = stepFor(installed, latest, root, installed !== null && checks !== null && needsRepair(checks, installed));
   const rest = target === null || minimum === null ? null : restStep(root, target, minimum);
-  const known = `${latest === null ? " (npm no responde)" : ""}${missing === null ? " (no se pudieron leer los labels de GitHub)" : ""}`;
-  const state = installed === null ? `no instalado${known}` : behind ? `${installed}, hay ${latest}${known}` : `${installed}, al día${known}`;
+  const known = `${latest === null ? said.npmDown : ""}${missing === null ? ui.pieces.flow.labelsUnread : ""}`;
+  const state = `${installed === null ? said.notInstalled : behind && latest !== null ? said.behind(installed, latest) : said.upToDate(installed)}${known}`;
   const steps = [...(step === null ? [] : [step]), ...(rest === null ? [] : [rest]), ...(target !== null && missing !== null && missing.length > 0 ? [labelsStep(target, missing)] : [])];
   return { name: NAME, summary, installed: installed !== null, state, steps };
 }
@@ -314,30 +313,31 @@ export async function issueFlowStatus(root: string): Promise<PieceStatus> {
  * @example (await issueFlowChecks(root))[0].name // "issue-flow: .agents/flow.json"
  */
 export async function issueFlowChecks(root: string): Promise<Check[]> {
+  const said = ui.pieces.flow;
   const spec = flowSpec(root);
-  if (spec === null) return [{ name: NAME, status: "info", detail: "no instalado" }];
+  if (spec === null) return [{ name: NAME, status: "info", detail: ui.pieces.common.notInstalled }];
   const installed = flowVersion(root);
-  if (installed === null) return [{ name: NAME, status: "info", detail: `package.json tiene ${spec}, no una versión exacta` }];
-  if (compareVersions(installed, JSON_DOCTOR) < 0) return [{ name: NAME, status: "info", detail: `${installed} no tiene doctor --json: corre npx agent-kitchen apply para actualizarlo` }];
+  if (installed === null) return [{ name: NAME, status: "info", detail: ui.pieces.common.notExact(spec) }];
+  if (compareVersions(installed, JSON_DOCTOR) < 0) return [{ name: NAME, status: "info", detail: said.noJsonDoctor(installed) }];
   const labelsRead = missingLabels(root, installed);
   const found = await flowDoctor(root, installed);
   const own: Check[] = found !== null
     ? found.map((check) => ({ name: `${NAME}: ${String(check.name)}`, status: check.ok === true ? "ok" : "fail", detail: String(check.detail) }))
-    : [{ name: NAME, status: "fail", detail: `no se pudo correr su doctor; corre 'npx ${FLOW_PACKAGE}@${installed} doctor'` }];
+    : [{ name: NAME, status: "fail", detail: ui.pieces.common.doctorFailed(`npx ${FLOW_PACKAGE}@${installed} doctor`) }];
   const off = skillsOff(root, installed);
   const count = catalogSkills(root, FLOW_CATALOG).length;
   const skills: Check = count === 0 && off.length === 0
-    ? { name: `${NAME}: skills`, status: "info", detail: "ninguna instalada" }
+    ? { name: `${NAME}: skills`, status: "info", detail: said.noSkills }
     : off.length === 0
-    ? { name: `${NAME}: skills`, status: "ok", detail: `${count} en v${installed}` }
-    : { name: `${NAME}: skills`, status: "fail", detail: `${off.join(", ")}; issue-flow está en ${installed}: corre npx agent-kitchen apply` };
+    ? { name: `${NAME}: skills`, status: "ok", detail: said.skillsAt(count, installed) }
+    : { name: `${NAME}: skills`, status: "fail", detail: said.skillsBehind(off, installed) };
   const missing = await labelsRead;
   const labels: Check[] = compareVersions(installed, LABELS_SINCE) < 0
     ? []
     : missing === null
-    ? [{ name: `${NAME}: labels`, status: "info", detail: "no se pudieron leer de GitHub" }]
+    ? [{ name: `${NAME}: labels`, status: "info", detail: said.labelsCheckUnread }]
     : missing.length > 0
-    ? [{ name: `${NAME}: labels`, status: "info", detail: `faltan ${missing.join(", ")} en GitHub; corre npx agent-kitchen apply` }]
-    : [{ name: `${NAME}: labels`, status: "ok", detail: "GitHub tiene los que espera el flujo" }];
+    ? [{ name: `${NAME}: labels`, status: "info", detail: said.labelsMissing(missing) }]
+    : [{ name: `${NAME}: labels`, status: "ok", detail: said.labelsOk }];
   return [...own, skills, ...labels];
 }

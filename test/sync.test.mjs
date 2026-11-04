@@ -46,7 +46,7 @@ test("--yes on an empty repo installs everything in order, each piece with its o
   assert.doesNotMatch(r.out, /^→ /m);
   assert.deepEqual(repo.npmCalls().filter((args) => args[0] === "install"), [["install"]]);
   assert.match(r.out, /✓ Dependencias instaladas con npm/);
-  assert.match(r.out, /Listo\. Falta: revisa el diff y haz commit\./);
+  assert.match(r.out, /\[ok\] Listo\.\n\n  Falta: revisa el diff y haz commit\./);
 });
 
 test("in the checkout, steps that leave package.json as it was do not install, even if it already had changes", () => {
@@ -60,7 +60,7 @@ test("in the checkout, steps that leave package.json as it was do not install, e
   assert.equal(repo.read(".claude/cloud.json").version, "1.1.0");
   assert.deepEqual(repo.npmCalls().filter((args) => args[0] === "install"), []);
   assert.doesNotMatch(r.out, /install/);
-  assert.match(r.out, /Listo\. Falta: revisa el diff y haz commit\./);
+  assert.match(r.out, /\[ok\] Listo\.\n\n  Falta: revisa el diff y haz commit\./);
 });
 
 test("in the checkout, a failed install is a failure and is left to do by hand", () => {
@@ -71,7 +71,7 @@ test("in the checkout, a failed install is a failure and is left to do by hand",
   assert.equal(r.status, 1);
   assert.match(r.out, /^✗ Falló: Instalar las dependencias con npm \(\d+,\d s\)$/m);
   assert.match(r.err, /fake: npm install failed/);
-  assert.match(r.out, /Terminó, pero fallaron: Instalar las dependencias con npm\. Falta: corre 'npm install', revisa el diff y haz commit\./);
+  assert.match(r.out, /\[!\] Terminó, pero fallaron: Instalar las dependencias con npm\.\n\n  Falta: corre 'npm install', revisa el diff y haz commit\./);
 });
 
 test("the tools' output is hidden unless a step fails, and shown with --verbose", () => {
@@ -337,10 +337,12 @@ test("after apply with the piece installed, the next step is printed", () => {
   const r = repo.cli(["--yes"]);
   const same = upToDate.cli(["--yes"]);
   const skipped = installedRepo().cli(["--yes", "--skip", "agent-cloud-kit"]);
+  const installedNow = makeRepo().cli(["--yes"]);
 
-  assert.match(r.out.trimEnd(), /Siguiente paso para la nube: npx agent-cloud-kit prepare$/);
-  assert.match(same.out.trimEnd(), /Siguiente paso para la nube: npx agent-cloud-kit prepare$/);
+  assert.match(r.out.trimEnd(), /Siguiente paso para la nube:\n    npx agent-cloud-kit prepare$/);
+  assert.match(same.out.trimEnd(), /Siguiente paso para la nube:\n    npx agent-cloud-kit prepare$/);
   assert.doesNotMatch(skipped.out, /Siguiente paso para la nube/);
+  assert.match(installedNow.out.trimEnd(), /Siguiente paso para la nube:\n    npx agent-cloud-kit prepare$/);
 });
 
 test("a general catalog that follows a branch is not offered as behind, and skills already in the lock are not new", () => {

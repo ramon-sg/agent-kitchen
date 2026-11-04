@@ -16,6 +16,7 @@ import { COMMIT_TITLE as TITLE, prBody } from "./commit-texts.js";
 import { KitError } from "./output.js";
 import { FLOW_CONFIG } from "./piece.js";
 import { dependencyVersion, readJson } from "./repo.js";
+import { ui } from "./texts/index.js";
 import { captureNpxWithout, isRelease, npmLatest } from "./tools.js";
 
 /** github-rest on npm, which opens the PR (REST, never gh's GraphQL). */
@@ -89,7 +90,7 @@ function innerWorktrees(root: string): string[] {
  */
 export function changedPaths(root: string): string[] {
   const status = git(root, ["status", "--porcelain", "-uall", "-z"]);
-  if (!status.ok) throw new KitError(`no pude leer git status: ${status.err}`);
+  if (!status.ok) throw new KitError(ui.pr.gitStatus(status.err));
   const worktrees = innerWorktrees(root);
   const entries = status.out.split("\0").filter((entry) => entry !== "");
   const paths: string[] = [];
@@ -152,11 +153,11 @@ function hooksPath(root: string, clone: string): string {
  */
 export function cloneFromOrigin(root: string, base: string): string {
   const url = originUrl(root);
-  if (url === null) throw new KitError("--pr necesita un remoto origin, y este repo no tiene.");
+  if (url === null) throw new KitError(ui.pr.noOrigin);
   const fetched = git(root, ["fetch", "-q", "--prune", "origin"]);
-  if (!fetched.ok) throw new KitError(`no pude bajar origin con git fetch; revisa la conexión o las credenciales y corre otra vez.${fetched.err === "" ? "" : `\n${fetched.err}`}`);
+  if (!fetched.ok) throw new KitError(`${ui.pr.fetch}${fetched.err === "" ? "" : `\n${fetched.err}`}`);
   const head = git(root, ["rev-parse", "-q", "--verify", `refs/remotes/origin/${base}^{commit}`]);
-  if (!head.ok) throw new KitError(`origin no tiene la rama ${base}.`);
+  if (!head.ok) throw new KitError(ui.pr.noBranch(base));
   const clone = realpathSync(mkdtempSync(join(tmpdir(), "agent-kitchen-pr-")));
   const steps: string[][] = [
     ["clone", "-q", "--shared", "--no-checkout", root, clone],
@@ -169,7 +170,7 @@ export function cloneFromOrigin(root: string, base: string): string {
     const done = git(root, args);
     if (!done.ok) {
       rmSync(clone, { recursive: true, force: true });
-      throw new KitError(`no pude preparar la copia temporal: ${done.err}`);
+      throw new KitError(ui.pr.clone(done.err));
     }
   }
   for (const key of IDENTITY) {
@@ -210,14 +211,14 @@ async function githubRestVersion(root: string): Promise<string | null> {
  */
 async function openPr(root: string, clone: string, branch: string, base: string, steps: string[]): Promise<{ url: string } | { error: string }> {
   const version = await githubRestVersion(clone);
-  if (version === null) return { error: `no sé qué versión de ${GITHUB_REST} usar.` };
+  if (version === null) return { error: ui.pr.noRestVersion(GITHUB_REST) };
   const dir = mkdtempSync(join(tmpdir(), "agent-kitchen-body-"));
   const bodyFile = join(dir, "body.md");
   writeFileSync(bodyFile, prBody(steps));
   try {
     const result = await captureNpxWithout(root, [`${GITHUB_REST}@${version}`, "pr", "create", "--head", branch, "--base", base, "--title", TITLE, "--body-file", bodyFile, "--draft"], ["GH_REPO"]);
     const url = result.out.trim().split("\n").at(-1) ?? "";
-    return result.status === 0 && url !== "" ? { url } : { error: `${result.err}${result.out}`.trim() || "github-rest falló sin decir por qué." };
+    return result.status === 0 && url !== "" ? { url } : { error: `${result.err}${result.out}`.trim() || ui.pr.restSilent };
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -233,6 +234,19 @@ function prCommand(branch: string, base: string): string {
   return `npx @ramon-sg/github-rest pr create --head ${branch} --base ${base} --title "${TITLE}" --body "..." --draft`;
 }
 
+/**
+ * How `publish` went: whether it all worked, whether the changes reached origin, the PR's URL
+ * when it opened, and otherwise what failed, the details and the command to finish by hand.
+ */
+export interface Published {
+  ok: boolean;
+  pushed: boolean;
+  url?: string;
+  problem?: string;
+  details: string[];
+  command?: string;
+}
+
 /** What `publish` needs to know. */
 export interface PublishOptions {
   base: string;
@@ -246,21 +260,21 @@ export interface PublishOptions {
  * @param root - The repo.
  * @param clone - The clone, with the changes.
  * @param options - The base, the steps that ran (for the commit and the PR) and the files to commit (the ones shown).
- * @returns The lines to show, whether it all worked and whether the changes reached origin.
+ * @returns How it went.
  * @example await publish(root, clone, { base: "main", steps, paths })
  */
-export async function publish(root: string, clone: string, options: PublishOptions): Promise<{ ok: boolean; pushed: boolean; lines: string[] }> {
+export async function publish(root: string, clone: string, options: PublishOptions): Promise<Published> {
   const { base, steps, paths } = options;
   const add = git(clone, ["--literal-pathspecs", "add", "-A", "--", ...paths]);
   const done = add.ok ? git(clone, ["commit", "-q", "-m", TITLE, "-m", steps.map((step) => `- ${step}`).join("\n")]) : add;
-  if (!done.ok) return { ok: false, pushed: false, lines: ["No pude hacer el commit.", done.err || done.out].filter((line) => line !== "") };
+  if (!done.ok) return { ok: false, pushed: false, problem: ui.pr.commit, details: [done.err || done.out].filter((line) => line !== "") };
   const sha = git(clone, ["rev-parse", "HEAD"]).out;
   const branch = branchName(root, new Date());
   // git asks for credentials on the terminal itself, so its output can stay captured.
   const fetched = git(root, ["fetch", "-q", clone, "HEAD"]);
   const pushed = fetched.ok ? git(root, ["push", "-q", "origin", `${sha}:refs/heads/${branch}`]) : fetched;
-  if (!pushed.ok) return { ok: false, pushed: false, lines: [`No pude subir la rama ${branch} a origin.`, pushed.err].filter((line) => line !== "") };
+  if (!pushed.ok) return { ok: false, pushed: false, problem: ui.pr.push(branch), details: [pushed.err].filter((line) => line !== "") };
   const pr = await openPr(root, clone, branch, base, steps);
-  if ("url" in pr) return { ok: true, pushed: true, lines: [`PR en draft: ${pr.url}`] };
-  return { ok: false, pushed: true, lines: [`La rama ${branch} está en origin, pero no pude abrir el PR: ${pr.error}`, `Falta: ${prCommand(branch, base)}`] };
+  if ("url" in pr) return { ok: true, pushed: true, url: pr.url, details: [] };
+  return { ok: false, pushed: true, problem: ui.pr.open(branch, pr.error), details: [], command: prCommand(branch, base) };
 }

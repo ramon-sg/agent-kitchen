@@ -82,6 +82,9 @@ export function makeRepo({ tags = { "ramon-sg/claude-repo-guard": ["0.1.0", "0.2
     GIT_CONFIG_KEY_0: `url.${join(tmp, "github")}/.insteadOf`,
     GIT_CONFIG_VALUE_0: "https://github.com/",
     ...GIT_ENV,
+    // Spanish and no color, whatever the shell running the tests has; a test can say otherwise.
+    AGENT_KITCHEN_LANG: "",
+    NO_COLOR: "",
     ...extra,
   });
   return {

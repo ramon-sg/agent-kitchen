@@ -7,6 +7,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { KitError } from "./output.js";
+import { ui } from "./texts/index.js";
 
 /**
  * Whether a value is a plain JSON object.
@@ -40,9 +41,9 @@ function git(cwd: string, args: string[]): string | null {
 export function mainCheckout(cwd: string, command: string): string {
   const common = git(cwd, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
   const top = git(cwd, ["rev-parse", "--show-toplevel"]);
-  if (common === null || top === null) throw new KitError(`corre ${command} dentro del repo.`);
+  if (common === null || top === null) throw new KitError(ui.repo.outside(command));
   const main = realpathSync(dirname(common));
-  if (realpathSync(top) !== main) throw new KitError(`corre ${command} en la copia principal, ${main}, no en un worktree.`);
+  if (realpathSync(top) !== main) throw new KitError(ui.repo.worktree(command, main));
   return main;
 }
 
@@ -61,9 +62,9 @@ export function readJson(root: string, path: string): Record<string, unknown> | 
   try {
     value = JSON.parse(readFileSync(file, "utf8"));
   } catch (error) {
-    throw new KitError(`${path} no es JSON válido (${error instanceof Error ? error.message : String(error)}); arréglalo y corre otra vez.`);
+    throw new KitError(ui.repo.badJson(path, error instanceof Error ? error.message : String(error)));
   }
-  if (!isObject(value)) throw new KitError(`${path} no es un objeto JSON; arréglalo y corre otra vez.`);
+  if (!isObject(value)) throw new KitError(ui.repo.notObject(path));
   return value;
 }
 
@@ -159,7 +160,7 @@ export function installedVersion(root: string, name: string): string | null {
  */
 export function setDependency(root: string, name: string, version: string): void {
   const pkg = readJson(root, "package.json");
-  if (pkg === null) throw new KitError("no hay package.json.");
+  if (pkg === null) throw new KitError(ui.repo.noPackage);
   const text = readFileSync(join(root, "package.json"), "utf8");
   const indent = /^([ \t]+)"/m.exec(text)?.[1] ?? "  ";
   const eol = text.includes("\r\n") ? "\r\n" : "\n";

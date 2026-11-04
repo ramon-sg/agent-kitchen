@@ -15,6 +15,7 @@
  */
 import { type Check, type Context, FLOW_CONFIG, type PieceStatus, type Step } from "../piece.js";
 import { readJson, writeJson } from "../repo.js";
+import { ui } from "../texts/index.js";
 import { captureNpx, compareVersions, isRelease, latestTag, runNpx } from "../tools.js";
 
 /** The piece's name, as `--skip` takes it. */
@@ -71,9 +72,7 @@ export function guardCommand(version: string | null): string {
  */
 export function guardFailure(version: string | null, output: string): string {
   const command = `npx ${guardSpec(version)} ${guardCommand(version)}`;
-  if (PERMISSION_ERROR.test(output))
-    return `claude-repo-guard no se instaló: no tuvo permiso para escribir en el repo. Si corres agent-kitchen dentro de una sesión de Claude, su sandbox bloquea .claude/settings.json; corre '${command}' desde tu terminal.`;
-  return `claude-repo-guard no se instaló; su error está abajo. Para reintentar a mano: '${command}'.`;
+  return PERMISSION_ERROR.test(output) ? ui.pieces.guard.sandbox(command) : ui.pieces.guard.failed(command);
 }
 
 /**
@@ -90,16 +89,16 @@ export function guardOptions(root: string, platform: string): { options: Record<
   const environment = Array.isArray(options.environment) ? options.environment.map(String) : [];
   if (flow !== null && !environment.includes(GUARD_ENVIRONMENT)) {
     options.environment = [...environment, GUARD_ENVIRONMENT];
-    changes.push("le explica el flujo de issues al modo auto");
+    changes.push(ui.pieces.guard.explainsFlow);
   }
   const baseBranch = typeof flow?.baseBranch === "string" ? flow.baseBranch : null;
   if (baseBranch !== null && (options.integrationBranch === undefined || options.integrationBranch === "")) {
     options.integrationBranch = baseBranch;
-    changes.push(`rama de integración ${baseBranch}`);
+    changes.push(ui.pieces.guard.integration(baseBranch));
   }
   if (platform === "darwin" && options[WEAKER_NETWORK] !== true) {
     options[WEAKER_NETWORK] = true;
-    changes.push(`${WEAKER_NETWORK} activado, para que gh funcione en el sandbox de macOS`);
+    changes.push(ui.pieces.guard.weaker(WEAKER_NETWORK));
   }
   return { options, changes };
 }
@@ -129,7 +128,7 @@ async function install(context: Context, version: string | null): Promise<boolea
  */
 async function addOptions(context: Context, version: string | null): Promise<boolean> {
   if (guardOptions(context.root, process.platform).changes.length > 0) return install(context, version);
-  context.note("sus opciones ya tienen lo que necesita el flujo");
+  context.note(ui.pieces.guard.optionsFine);
   return true;
 }
 
@@ -171,10 +170,12 @@ function stepFor(root: string, installed: string | null | undefined, latest: str
 export async function guardStatus(root: string, flowComing: boolean): Promise<PieceStatus> {
   const installed = installedVersion(root);
   const latest = await latestTag(REPO);
-  const known = latest === null ? " (GitHub no tiene una versión)" : "";
-  const state = installed === undefined ? `no instalado${known}` : latest !== null && (installed === null || compareVersions(latest, installed) > 0) ? `${installed ?? "versión desconocida"}, hay ${latest}` : `${installed ?? "versión desconocida"}, al día${known}`;
+  const said = ui.pieces.common;
+  const known = latest === null ? ui.pieces.guard.noTag : "";
+  const shown = installed ?? ui.pieces.guard.unknown;
+  const state = installed === undefined ? `${said.notInstalled}${known}` : latest !== null && (installed === null || compareVersions(latest, installed) > 0) ? said.behind(shown, latest) : `${said.upToDate(shown)}${known}`;
   const step = stepFor(root, installed, latest, flowComing);
-  return { name: NAME, summary: "barandas: modo auto con sandbox", installed: installed !== undefined, state, steps: step === null ? [] : [step] };
+  return { name: NAME, summary: ui.pieces.guard.summary, installed: installed !== undefined, state, steps: step === null ? [] : [step] };
 }
 
 /**
@@ -185,10 +186,11 @@ export async function guardStatus(root: string, flowComing: boolean): Promise<Pi
  */
 export async function guardChecks(root: string): Promise<Check[]> {
   const installed = installedVersion(root);
-  if (installed === undefined) return [{ name: NAME, status: "info", detail: "no instalado (Claude se abre con tus propios permisos)" }];
+  const said = ui.pieces.guard;
+  if (installed === undefined) return [{ name: NAME, status: "info", detail: said.checkNotInstalled }];
   const checks: Check[] = [];
   if (process.platform === "darwin" && readJson(root, CONFIG)?.[WEAKER_NETWORK] !== true)
-    checks.push({ name: `${NAME}: ${WEAKER_NETWORK}`, status: "fail", detail: `no está activado en ${CONFIG}, así que gh falla en el sandbox de macOS: corre npx agent-kitchen apply` });
+    checks.push({ name: `${NAME}: ${WEAKER_NETWORK}`, status: "fail", detail: said.checkWeaker(CONFIG) });
   const result = await captureNpx(root, [guardSpec(installed), "doctor", "--json"]);
   let found: unknown;
   try {
@@ -196,9 +198,9 @@ export async function guardChecks(root: string): Promise<Check[]> {
   } catch {
     found = null;
   }
-  if (!Array.isArray(found)) return [...checks, { name: NAME, status: "fail", detail: `no se pudo correr su doctor; corre 'npx ${guardSpec(installed)} doctor'` }];
+  if (!Array.isArray(found)) return [...checks, { name: NAME, status: "fail", detail: ui.pieces.common.doctorFailed(`npx ${guardSpec(installed)} doctor`) }];
   const bad = found.filter((check: unknown) => typeof check !== "object" || check === null || (check as { ok?: unknown }).ok !== true);
-  if (bad.length === 0) return [...checks, { name: NAME, status: "ok", detail: `${installed ?? "versión desconocida"}, su doctor pasa` }];
+  if (bad.length === 0) return [...checks, { name: NAME, status: "ok", detail: said.checkOk(installed ?? said.unknown) }];
   return [...checks, ...bad.map((check: unknown) => {
     const entry = typeof check === "object" && check !== null ? (check as { name?: unknown; detail?: unknown }) : { name: "?", detail: String(check) };
     return { name: `${NAME}: ${String(entry.name)}`, status: "fail" as const, detail: String(entry.detail) };

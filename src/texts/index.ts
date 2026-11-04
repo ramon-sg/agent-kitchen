@@ -1,14 +1,25 @@
 /**
- * @file The interface's texts, and how a step reads in a list. Another language is a file
- * like es.ts that implements `Catalog`, chosen here.
+ * @file The interface's texts, and how a step reads in a list. Each language is a file like
+ * es.ts that implements `Catalog`; the entry point picks one once with `useLang`.
  */
+import type { Lang } from "../lang.js";
 import type { Step } from "../piece.js";
 import type { Catalog, StepPhrases } from "./catalog.js";
+import { en } from "./en.js";
 import { es } from "./es.js";
 import type { StepKind, StepOf, StepText } from "./step-text.js";
 
-/** The catalog the interface uses. */
-export const ui: Catalog = es;
+/** The catalog the interface uses: Spanish until the entry point says otherwise. */
+export let ui: Catalog = es;
+
+/**
+ * Picks the language of the interface, once, before any text is shown.
+ * @param lang - The language.
+ * @example useLang("en")
+ */
+export function useLang(lang: Lang): void {
+  ui = lang === "en" ? en : es;
+}
 
 /**
  * A step's texts in a catalog.

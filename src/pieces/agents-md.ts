@@ -8,6 +8,7 @@
 import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Check, Context, PieceStatus } from "../piece.js";
+import { ui } from "../texts/index.js";
 
 /** The piece's name, as `--skip` takes it. */
 export const NAME = "agents-md";
@@ -85,7 +86,7 @@ function append(root: string, name: string, line: string): void {
  */
 function write(context: Context): boolean {
   if (!existsSync(join(context.root, "package.json"))) {
-    context.note("sin package.json: no se agregó nada");
+    context.note(ui.pieces.agentsMd.noPackage);
     return true;
   }
   const lack = missing(context.root);
@@ -104,9 +105,10 @@ function write(context: Context): boolean {
 export async function agentsMdStatus(root: string, flowComing: boolean): Promise<PieceStatus | null> {
   if (!existsSync(join(root, "package.json")) && !flowComing) return null;
   const lack = missing(root);
-  const summary = "regla de versiones instaladas en AGENTS.md";
-  if (!lack.rule && !lack.import) return { name: NAME, summary, installed: true, state: "al día", steps: [] };
-  const state = lack.rule ? "falta la regla" : "CLAUDE.md no importa AGENTS.md";
+  const said = ui.pieces.agentsMd;
+  const summary = said.summary;
+  if (!lack.rule && !lack.import) return { name: NAME, summary, installed: true, state: said.upToDate, steps: [] };
+  const state = lack.rule ? said.noRule : said.noImport;
   return { name: NAME, summary, installed: !lack.rule, state, steps: [{ piece: NAME, checked: true, downloads: [], text: { kind: "agents-md", rule: lack.rule, claudeImport: lack.import }, run: async (context) => write(context) }] };
 }
 
@@ -120,7 +122,7 @@ export async function agentsMdChecks(root: string): Promise<Check[]> {
   if (!existsSync(join(root, "package.json"))) return [];
   const lack = missing(root);
   const checks: Check[] = [];
-  if (lack.rule) checks.push({ name: NAME, status: "info", detail: "falta la regla de versiones en AGENTS.md; corre npx agent-kitchen apply" });
-  if (lack.import) checks.push({ name: NAME, status: "info", detail: "CLAUDE.md no importa AGENTS.md, así que Claude Code no lo lee; corre npx agent-kitchen apply" });
-  return checks.length > 0 ? checks : [{ name: NAME, status: "ok", detail: "regla de versiones en AGENTS.md" }];
+  if (lack.rule) checks.push({ name: NAME, status: "info", detail: ui.pieces.agentsMd.checkNoRule });
+  if (lack.import) checks.push({ name: NAME, status: "info", detail: ui.pieces.agentsMd.checkNoImport });
+  return checks.length > 0 ? checks : [{ name: NAME, status: "ok", detail: ui.pieces.agentsMd.checkOk }];
 }
