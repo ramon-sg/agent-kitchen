@@ -78,6 +78,8 @@ export interface Catalog {
   noSteps: (why: "leave" | "none", wrote: boolean) => string;
   /** Nothing was changed. */
   nothingChanged: string;
+  /** The same, as a warning after the program's name. */
+  nothingChangedWarning: string;
   /** With --pr, before the clone: from which branch of origin. */
   cloning: (base: string) => string;
   /** With --pr, the heading of the files that go in the PR. */

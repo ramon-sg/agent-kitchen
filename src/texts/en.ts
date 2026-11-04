@@ -144,6 +144,7 @@ export const en: Catalog = {
     return wrote ? "You picked no steps; only saved which pieces the repo uses." : "You picked nothing; nothing was changed.";
   },
   nothingChanged: "Nothing was changed.",
+  nothingChangedWarning: "nothing was changed.",
   cloning: (base) => `Working in a temporary copy of origin/${base}; your branch and your files are not touched.`,
   changes: "Changes in the PR:",
   noChanges: "No file changed: there is no PR to open.",

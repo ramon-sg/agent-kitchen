@@ -144,6 +144,7 @@ export const es: Catalog = {
     return wrote ? "No elegiste pasos; solo guardé qué piezas usa el repo." : "No elegiste nada; no se cambió nada.";
   },
   nothingChanged: "No se cambió nada.",
+  nothingChangedWarning: "no se cambió nada.",
   cloning: (base) => `Trabajo en una copia temporal de origin/${base}; tu rama y tus archivos no se tocan.`,
   changes: "Cambios del PR:",
   noChanges: "No cambió ningún archivo: no hay PR que abrir.",

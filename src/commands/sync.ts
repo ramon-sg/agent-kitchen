@@ -423,7 +423,7 @@ async function applyIn(work: Workplace, options: SyncOptions, out: Output): Prom
   if (chosen === "leave") return endWithoutSteps(ui.noSteps("leave", wrote));
   if (chosen === null) {
     if (wrote) return endWithoutSteps(ui.noSteps("leave", wrote));
-    if (!options.dryRun && out.interactive) warn(out, ui.nothingChanged);
+    if (!options.dryRun && out.interactive) warn(out, ui.nothingChangedWarning);
     return options.dryRun || !out.interactive ? 0 : 1;
   }
   if (chosen.length === 0) return options.yes ? endWithoutSteps(ui.allSet, [ui.onlyOptional(steps.map(stepLabel))]) : endWithoutSteps(ui.noSteps("none", wrote));

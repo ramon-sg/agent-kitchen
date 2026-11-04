@@ -61,6 +61,15 @@ async function handOver(argv: string[]): Promise<number | null> {
 }
 
 /**
+ * The top of the repo the command runs in, where it reads whether Kuro is off.
+ * @returns The folder, or null outside a git checkout.
+ */
+function repoTop(): string | null {
+  const result = spawnSync("git", ["rev-parse", "--show-toplevel"], { encoding: "utf8" });
+  return result.status === 0 ? result.stdout.trim() : null;
+}
+
+/**
  * The usage text, in the interface's language.
  * @returns The text.
  */
@@ -114,7 +123,7 @@ try {
     process.stderr.write(`agent-kitchen: ${message}\n\n${usage()}\n`);
     process.exitCode = 2;
   } else if (error instanceof KitError) {
-    show(out, { mood: "error", title: ui.cli.stopped, lines: error.message.split("\n") }, process.cwd(), "stderr");
+    show(out, { mood: "error", title: ui.cli.stopped, lines: error.message.split("\n") }, repoTop(), "stderr");
     process.exitCode = 1;
   } else {
     throw error;
