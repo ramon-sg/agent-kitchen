@@ -193,7 +193,9 @@ function needsRepair(checks: FlowCheck[], version: string): boolean {
 
 /**
  * The labels the flow expects that GitHub lacks, as `labels sync --dry-run --json` of a
- * version tells (a label that only differs in color or description does not count).
+ * version tells (a label that only differs in color or description does not count). It gets
+ * the terminal's language, so a value of `ISSUE_FLOW_LANG` in the shell that issue-flow refuses
+ * does not leave the labels unread.
  * @param root - The repo.
  * @param version - The flow's version.
  * @returns Their names, none for a version without `labels sync`, or null if it could not tell.
@@ -201,7 +203,7 @@ function needsRepair(checks: FlowCheck[], version: string): boolean {
  */
 async function missingLabels(root: string, version: string): Promise<string[] | null> {
   if (compareVersions(version, LABELS_SINCE) < 0) return [];
-  const result = await captureNpx(root, [`${FLOW_PACKAGE}@${version}`, "labels", "sync", "--dry-run", "--json"], true);
+  const result = await captureNpx(root, [`${FLOW_PACKAGE}@${version}`, "labels", "sync", "--dry-run", "--json"], true, { [LANG_VAR]: currentLang() });
   let found: unknown;
   try {
     found = JSON.parse(result?.out ?? "");

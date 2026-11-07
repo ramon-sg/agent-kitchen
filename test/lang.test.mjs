@@ -170,15 +170,47 @@ test("each tool gets only its own language variable", () => {
   assert.ok(flowRuns(repo).every((call) => call.guardLang === null));
 });
 
-test("the flow's doctor speaks the terminal's language in doctor, English where its text is read, and the guard's gets none", () => {
+test("the flow's doctor speaks the terminal's language in doctor, English where its text is read, and the guard's speaks the terminal's", () => {
   const repo = repoWithGuard070();
   repo.cli(["--yes"], { env: { FAKE_NPM: FLOW_030 } });
   const doctors = (prefix) => runsOf(repo, prefix).filter((call) => command(call).startsWith("doctor"));
 
   repo.cli(["doctor"], { env: { FAKE_NPM: FLOW_030 } });
   assert.deepEqual(doctors("@ramon-sg/issue-flow@").map((call) => call.flowLang), ["es"]);
-  assert.deepEqual(doctors("github:ramon-sg/claude-repo-guard").map((call) => call.guardLang), [null]);
+  assert.deepEqual(doctors("github:ramon-sg/claude-repo-guard").map((call) => call.guardLang), ["es"]);
 
   repo.cli(["--dry-run"], { env: { FAKE_NPM: FLOW_030 } });
   assert.deepEqual(doctors("@ramon-sg/issue-flow@").map((call) => call.flowLang), ["en"]);
+});
+
+test("with the tools' language variables in fr in the shell, doctor reads the guard and the flow labels as without them", () => {
+  const tags = { "ramon-sg/claude-repo-guard": ["0.7.0"], "ramon-sg/agent-skills": ["0.2.0"] };
+  const npm = JSON.stringify({ ...NPM, "@ramon-sg/issue-flow": "0.5.0" });
+  const shell = { FAKE_NPM: npm, FAKE_LABELS: '{"labels":[{"name":"spike","status":"to-create"}]}' };
+  const repo = installedRepo({ flow: "0.5.0", guard: "0.7.0", tags });
+  const clean = repo.cli(["doctor"], { env: shell });
+
+  const r = repo.cli(["doctor"], { env: { ...shell, CLAUDE_REPO_GUARD_LANG: "fr", ISSUE_FLOW_LANG: "fr" } });
+
+  assert.equal(r.out, clean.out);
+  assert.equal(r.status, clean.status);
+  assert.match(r.out, /claude-repo-guard/);
+  assert.match(r.out, /spike/);
+  const reads = (prefix, words) => runsOf(repo, prefix).filter((call) => command(call).startsWith(words));
+  assert.deepEqual(reads("github:ramon-sg/claude-repo-guard", "doctor").map((call) => call.guardLang), ["es"]);
+  assert.deepEqual(reads("@ramon-sg/issue-flow@", "labels").map((call) => call.flowLang), ["es"]);
+});
+
+test("with the tools' language variables in fr in the shell, apply --dry-run offers the same steps as without them", () => {
+  const tags = { "ramon-sg/claude-repo-guard": ["0.7.0"], "ramon-sg/agent-skills": ["0.2.0"] };
+  const npm = JSON.stringify({ ...NPM, "@ramon-sg/issue-flow": "0.5.0" });
+  const shell = { FAKE_NPM: npm, FAKE_LABELS: '{"labels":[{"name":"spike","status":"to-create"}]}' };
+  const repo = installedRepo({ flow: "0.5.0", guard: "0.7.0", tags });
+  const clean = repo.cli(["--dry-run"], { env: shell });
+
+  const r = repo.cli(["--dry-run"], { env: { ...shell, CLAUDE_REPO_GUARD_LANG: "fr", ISSUE_FLOW_LANG: "fr" } });
+
+  assert.equal(r.status, clean.status);
+  assert.equal(r.out, clean.out);
+  assert.match(r.out, /spike/);
 });
