@@ -1,7 +1,7 @@
 ---
-status: in progress
+status: applied
 type: feature
-prs: []
+prs: [46]
 issue: 45
 ---
 
