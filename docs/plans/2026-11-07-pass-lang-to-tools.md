@@ -126,3 +126,4 @@ git commit -m "feat: claude-repo-guard e issue-flow hablan el idioma de la termi
 ## Desvíos
 
 - Tarea 1: los tests nuevos usan claude-repo-guard 0.7.0 y no el 0.2.0 de `makeRepo()`, porque 0.2.0 instala con `install` y la variable existe desde 0.7.0. El código no depende de la versión.
+- Revisión final: la decisión 1 estaba mal. Desde issue-flow 0.5.0, su `doctor --json` habla español si no recibe `ISSUE_FLOW_LANG`, y `needsRepair` busca `at X.Y.Z`: con un hook más nuevo, agent-kitchen proponía un `apply` que issue-flow rechaza. Ahora la lectura de `needsRepair` pide `en`, y el `doctor` de agent-kitchen pasa el idioma de la terminal. El doctor de claude-repo-guard sigue sin la variable, como pide la issue.

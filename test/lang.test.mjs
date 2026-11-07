@@ -159,16 +159,26 @@ test("agent-kitchen's language wins over one the shell already has for the tools
   assert.deepEqual(applies(flowRuns(repo)).map((call) => call.flowLang), ["en"]);
 });
 
-test("each tool gets only its own language variable, and their doctors get none", () => {
+test("each tool gets only its own language variable", () => {
   const repo = repoWithGuard070();
 
-  repo.cli(["--yes", "--lang", "en"], { env: { FAKE_NPM: FLOW_030 } });
+  const r = repo.cli(["--yes", "--lang", "en"], { env: { FAKE_NPM: FLOW_030 } });
+
+  assert.equal(r.status, 0, r.err);
   assert.ok(guardRuns(repo).length > 0 && flowRuns(repo).length > 0);
   assert.ok(guardRuns(repo).every((call) => call.flowLang === null));
   assert.ok(flowRuns(repo).every((call) => call.guardLang === null));
+});
 
-  repo.cli(["doctor", "--lang", "en"], { env: { FAKE_NPM: FLOW_030 } });
-  const doctors = [...guardRuns(repo), ...flowRuns(repo)].filter((call) => command(call).startsWith("doctor"));
-  assert.equal(doctors.length, 2);
-  assert.ok(doctors.every((call) => call.guardLang === null && call.flowLang === null));
+test("the flow's doctor speaks the terminal's language in doctor, English where its text is read, and the guard's gets none", () => {
+  const repo = repoWithGuard070();
+  repo.cli(["--yes"], { env: { FAKE_NPM: FLOW_030 } });
+  const doctors = (prefix) => runsOf(repo, prefix).filter((call) => command(call).startsWith("doctor"));
+
+  repo.cli(["doctor"], { env: { FAKE_NPM: FLOW_030 } });
+  assert.deepEqual(doctors("@ramon-sg/issue-flow@").map((call) => call.flowLang), ["es"]);
+  assert.deepEqual(doctors("github:ramon-sg/claude-repo-guard").map((call) => call.guardLang), [null]);
+
+  repo.cli(["--dry-run"], { env: { FAKE_NPM: FLOW_030 } });
+  assert.deepEqual(doctors("@ramon-sg/issue-flow@").map((call) => call.flowLang), ["en"]);
 });

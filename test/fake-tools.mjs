@@ -4,7 +4,7 @@
 //    view <pkg>@<v> dependencies --json prints FAKE_NPM_DEPS's entry for <pkg>@<v>, or fails.
 //  - issue-flow init writes its dev dependencies (keeping the ones the repo has) and
 //    .agents/flow.json; upgrade moves its own version; doctor --json prints
-//    FAKE_FLOW_DOCTOR; labels sync --dry-run prints FAKE_LABELS, and labels sync fails
+//    FAKE_FLOW_DOCTOR (from 0.5.0, a hook's detail in Spanish unless ISSUE_FLOW_LANG is en); labels sync --dry-run prints FAKE_LABELS, and labels sync fails
 //    with FAKE_LABELS_FAIL. From 0.3.0, apply, like the real one, pins its own version and
 //    adds github-rest only if missing (never skills-manager), makes package.json and
 //    .agents/flow.json if missing, and prints its --json with FAKE_FLOW_KEPT as kept; or
@@ -108,7 +108,12 @@ if (spec.startsWith("@ramon-sg/issue-flow@")) {
     pkg.devDependencies = { ...pkg.devDependencies, "@ramon-sg/issue-flow": version };
     writeJson(pkgFile, pkg);
   }
-  if (command === "doctor") process.stdout.write(process.env.FAKE_FLOW_DOCTOR ?? '[{"name":".agents/flow.json","ok":true,"detail":"valid"}]');
+  if (command === "doctor") {
+    const said = process.env.FAKE_FLOW_DOCTOR ?? '[{"name":".agents/flow.json","ok":true,"detail":"valid"}]';
+    // Like the real one, from 0.5.0 it speaks Spanish unless ISSUE_FLOW_LANG says en.
+    const spanish = (major > 0 || minor >= 5) && process.env.ISSUE_FLOW_LANG !== "en";
+    process.stdout.write(spanish ? said.replace(/"at (\d+\.\d+\.\d+), this is /g, '"en $1, esta es ') : said);
+  }
   if (command === "labels" && rest.includes("--dry-run")) process.stdout.write(process.env.FAKE_LABELS ?? '{"labels":[]}');
   else if (command === "labels" && process.env.FAKE_LABELS_FAIL) {
     process.stderr.write("fake: gh auth login is needed\n");
