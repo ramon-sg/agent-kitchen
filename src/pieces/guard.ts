@@ -15,7 +15,7 @@
  */
 import { type Check, type Context, FLOW_CONFIG, type PieceStatus, type Step } from "../piece.js";
 import { readJson, writeJson } from "../repo.js";
-import { ui } from "../texts/index.js";
+import { currentLang, ui } from "../texts/index.js";
 import { captureNpx, compareVersions, isRelease, latestTag, runNpx } from "../tools.js";
 
 /** The piece's name, as `--skip` takes it. */
@@ -23,6 +23,9 @@ export const NAME = "claude-repo-guard";
 
 /** Its GitHub repo. */
 export const REPO = "ramon-sg/claude-repo-guard";
+
+/** The variable that picks the guard's language (from 0.7.0; older versions ignore it). */
+const LANG_VAR = "CLAUDE_REPO_GUARD_LANG";
 
 /** Its options in the repo. */
 const CONFIG = ".claude/repo-guard.config.json";
@@ -113,7 +116,7 @@ async function install(context: Context, version: string | null): Promise<boolea
   const { options, changes } = guardOptions(context.root, process.platform);
   if (changes.length > 0) writeJson(context.root, CONFIG, options);
   for (const change of changes) context.note(change);
-  const run = await runNpx(context.root, [guardSpec(version), guardCommand(version), "--yes"]);
+  const run = await runNpx(context.root, [guardSpec(version), guardCommand(version), "--yes"], { [LANG_VAR]: currentLang() });
   if (run.ok) return true;
   context.fail(guardFailure(version, run.output), run.output);
   return false;

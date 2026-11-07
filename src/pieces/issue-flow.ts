@@ -16,11 +16,17 @@
 import { type Check, type Context, FLOW_CATALOG, FLOW_CONFIG, FLOW_PACKAGE, type PieceStatus, type Step } from "../piece.js";
 import { dependencyVersion, isObject, readJson, setDependency } from "../repo.js";
 import { catalogSkills, manifestCatalogs, pinCatalog, updateSkills } from "../skills-files.js";
-import { ui } from "../texts/index.js";
+import { currentLang, ui } from "../texts/index.js";
 import { captureNpx, compareVersions, isRelease, npmDependencies, npmLatest, runNpx } from "../tools.js";
 
 /** The piece's name, as `--skip` takes it. */
 export const NAME = "issue-flow";
+
+/**
+ * The variable that picks the flow's language; versions that do not know it ignore it. Only
+ * the commands that change the repo get it, since `needsRepair` reads the text of `doctor --json`.
+ */
+const LANG_VAR = "ISSUE_FLOW_LANG";
 
 /** The first version whose `doctor` prints `--json`. */
 const JSON_DOCTOR = "0.2.0";
@@ -112,7 +118,7 @@ async function moveSkills(context: Context, version: string): Promise<boolean> {
  * @returns Whether it exited 0.
  */
 async function runFlow(context: Context, version: string, args: string[]): Promise<boolean> {
-  const run = await runNpx(context.root, [`${FLOW_PACKAGE}@${version}`, ...args]);
+  const run = await runNpx(context.root, [`${FLOW_PACKAGE}@${version}`, ...args], { [LANG_VAR]: currentLang() });
   if (run.ok) return true;
   context.fail(ui.pieces.common.failed(`issue-flow ${args[0] ?? ""}`, `npx ${FLOW_PACKAGE}@${version} ${args.join(" ")}`), run.output);
   return false;
@@ -127,7 +133,7 @@ async function runFlow(context: Context, version: string, args: string[]): Promi
  */
 async function applyFlow(context: Context, version: string): Promise<boolean> {
   const retry = `npx ${FLOW_PACKAGE}@${version} apply --yes`;
-  const result = await captureNpx(context.root, [`${FLOW_PACKAGE}@${version}`, "apply", "--yes", "--json"]);
+  const result = await captureNpx(context.root, [`${FLOW_PACKAGE}@${version}`, "apply", "--yes", "--json"], false, { [LANG_VAR]: currentLang() });
   const output = `${result?.out ?? ""}${result?.err ?? ""}`;
   if (result === null || result.status !== 0) {
     context.fail(ui.pieces.common.failed("issue-flow apply", retry), output);

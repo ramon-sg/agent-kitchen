@@ -12,13 +12,26 @@ import type { StepKind, StepOf, StepText } from "./step-text.js";
 /** The catalog the interface uses: Spanish until the entry point says otherwise. */
 export let ui: Catalog = es;
 
+/** The language picked: Spanish until the entry point says otherwise. */
+let picked: Lang = "es";
+
 /**
  * Picks the language of the interface, once, before any text is shown.
  * @param lang - The language.
  * @example useLang("en")
  */
 export function useLang(lang: Lang): void {
+  picked = lang;
   ui = lang === "en" ? en : es;
+}
+
+/**
+ * The language of the interface, to hand to the tools agent-kitchen runs.
+ * @returns The language `useLang` picked, or `es`.
+ * @example currentLang() // "es"
+ */
+export function currentLang(): Lang {
+  return picked;
 }
 
 /**

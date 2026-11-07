@@ -18,7 +18,8 @@
 //  - skills-manager add --candidates prints FAKE_CANDIDATES; init writes a manifest; check
 //    fails with FAKE_CHECK_FAIL; update takes one name, like the real one (which ignores the
 //    rest), and moves that skill in the lock to its catalog's ref, or to FAKE_UPDATE_TAG.
-//  - github-rest pr create prints a PR's URL. Each call logs GH_REPO too.
+//  - github-rest pr create prints a PR's URL. Each call logs GH_REPO too, and the language
+//    variables of claude-repo-guard and issue-flow (null when unset or empty).
 //  - npm install and pnpm install write their lockfile, or exit 1 if FAKE_FAIL is "install".
 // Any npx call whose arguments contain FAKE_FAIL exits 1, saying so on stderr. A download
 // ahead of a step (`npx --package <spec>`) does nothing. Every other npx call prints
@@ -28,7 +29,7 @@ import { dirname, join } from "node:path";
 
 const program = process.env.FAKE_AS ?? "npx";
 const args = process.argv.slice(2);
-appendFileSync(process.env.FAKE_LOG, `${JSON.stringify({ program, args, cwd: process.cwd(), ghRepo: process.env.GH_REPO ?? null })}\n`);
+appendFileSync(process.env.FAKE_LOG, `${JSON.stringify({ program, args, cwd: process.cwd(), ghRepo: process.env.GH_REPO ?? null, guardLang: process.env.CLAUDE_REPO_GUARD_LANG || null, flowLang: process.env.ISSUE_FLOW_LANG || null })}\n`);
 
 const readJson = (path) => (existsSync(path) ? JSON.parse(readFileSync(path, "utf8")) : null);
 const writeJson = (path, value) => {
