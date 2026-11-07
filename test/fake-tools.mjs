@@ -18,6 +18,8 @@
 //  - skills-manager add --candidates prints FAKE_CANDIDATES; init writes a manifest; check
 //    fails with FAKE_CHECK_FAIL; update takes one name, like the real one (which ignores the
 //    rest), and moves that skill in the lock to its catalog's ref, or to FAKE_UPDATE_TAG.
+//  - Like the real ones, issue-flow from 0.5.0 and claude-repo-guard from 0.7.0 refuse to run
+//    when their language variable is set to something other than es or en.
 //  - github-rest pr create prints a PR's URL. Each call logs GH_REPO too, and the language
 //    variables of claude-repo-guard and issue-flow (null when unset or empty).
 //  - npm install and pnpm install write their lockfile, or exit 1 if FAKE_FAIL is "install".
@@ -74,6 +76,18 @@ if (process.env.FAKE_FAIL && args.join(" ").includes(process.env.FAKE_FAIL)) {
 }
 if (process.env.FAKE_SAY && !rest.includes("--candidates") && !rest.includes("--json")) process.stderr.write(`${process.env.FAKE_SAY}\n`);
 const cwd = process.cwd();
+
+// The language variable a tool reads at its version, if it reads one.
+const langVar = (() => {
+  const at = (version, since) => version !== null && version.split(".").map(Number).reduce((diff, part, index) => diff || part - since[index], 0) >= 0;
+  if (spec.startsWith("@ramon-sg/issue-flow@") && at(spec.split("@").at(-1), [0, 5, 0])) return "ISSUE_FLOW_LANG";
+  if (spec.startsWith("github:ramon-sg/claude-repo-guard") && at(spec.includes("#v") ? spec.split("#v")[1] : "9.9.9", [0, 7, 0])) return "CLAUDE_REPO_GUARD_LANG";
+  return null;
+})();
+if (langVar !== null && process.env[langVar] && !["es", "en"].includes(process.env[langVar])) {
+  process.stderr.write(`${langVar} expects es or en: ${process.env[langVar]}\n`);
+  process.exit(2);
+}
 
 if (spec.startsWith("@ramon-sg/issue-flow@")) {
   const version = spec.split("@").at(-1);

@@ -182,7 +182,9 @@ export async function guardStatus(root: string, flowComing: boolean): Promise<Pi
 }
 
 /**
- * The guard's own doctor at the repo's version and, on macOS, the option `gh` needs.
+ * The guard's own doctor at the repo's version and, on macOS, the option `gh` needs. The doctor
+ * gets the terminal's language, so its details read as the rest and a value of
+ * `CLAUDE_REPO_GUARD_LANG` in the shell that the guard refuses does not make it fail.
  * @param root - The repo.
  * @returns The checks.
  * @example (await guardChecks(root)).map((check) => check.status) // ["ok"]
@@ -194,7 +196,7 @@ export async function guardChecks(root: string): Promise<Check[]> {
   const checks: Check[] = [];
   if (process.platform === "darwin" && readJson(root, CONFIG)?.[WEAKER_NETWORK] !== true)
     checks.push({ name: `${NAME}: ${WEAKER_NETWORK}`, status: "fail", detail: said.checkWeaker(CONFIG) });
-  const result = await captureNpx(root, [guardSpec(installed), "doctor", "--json"]);
+  const result = await captureNpx(root, [guardSpec(installed), "doctor", "--json"], false, { [LANG_VAR]: currentLang() });
   let found: unknown;
   try {
     found = JSON.parse(result?.out ?? "");
