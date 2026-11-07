@@ -140,6 +140,15 @@ test("a hook newer than the repo's version does not offer to repair: apply would
   assert.doesNotMatch(r.out, /Reparar/);
 });
 
+test("from 0.5.0, whose doctor speaks Spanish by default, a newer hook still does not offer to repair", () => {
+  const repo = installedRepo({ flow: "0.5.1" });
+
+  const r = repo.cli(["--dry-run", ...ONLY], { env: { FAKE_NPM: npm("0.5.1"), FAKE_FLOW_DOCTOR: doctor(["SessionStart hook", "at 0.5.2, this is 0.5.1: run npx agent-kitchen apply"]) } });
+
+  assert.equal(r.status, 0, r.err);
+  assert.doesNotMatch(r.out, /Reparar/);
+});
+
 test("repairing after Dependabot raised package.json also moves the flow's skills to its tag", () => {
   const repo = installedRepo({ flow: "0.2.7" });
   repo.write("package.json", { devDependencies: { [FLOW]: "0.3.0", "@ramon-sg/github-rest": "0.3.0", "@ramon-sg/skills-manager": "1.2.0" } });

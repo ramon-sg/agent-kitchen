@@ -16,11 +16,20 @@
 import { type Check, type Context, FLOW_CATALOG, FLOW_CONFIG, FLOW_PACKAGE, type PieceStatus, type Step } from "../piece.js";
 import { dependencyVersion, isObject, readJson, setDependency } from "../repo.js";
 import { catalogSkills, manifestCatalogs, pinCatalog, updateSkills } from "../skills-files.js";
-import { ui } from "../texts/index.js";
+import type { Lang } from "../lang.js";
+import { currentLang, ui } from "../texts/index.js";
 import { captureNpx, compareVersions, isRelease, npmDependencies, npmLatest, runNpx } from "../tools.js";
 
 /** The piece's name, as `--skip` takes it. */
 export const NAME = "issue-flow";
+
+/**
+ * The variable that picks the flow's language; versions that do not know it ignore it. Every
+ * run of the flow gets it, since from 0.5.0 it speaks Spanish without it. The terminal's
+ * language goes to what the person reads; English goes to the `doctor --json` that
+ * `needsRepair` reads, because it matches its English text.
+ */
+const LANG_VAR = "ISSUE_FLOW_LANG";
 
 /** The first version whose `doctor` prints `--json`. */
 const JSON_DOCTOR = "0.2.0";
@@ -112,7 +121,7 @@ async function moveSkills(context: Context, version: string): Promise<boolean> {
  * @returns Whether it exited 0.
  */
 async function runFlow(context: Context, version: string, args: string[]): Promise<boolean> {
-  const run = await runNpx(context.root, [`${FLOW_PACKAGE}@${version}`, ...args]);
+  const run = await runNpx(context.root, [`${FLOW_PACKAGE}@${version}`, ...args], { [LANG_VAR]: currentLang() });
   if (run.ok) return true;
   context.fail(ui.pieces.common.failed(`issue-flow ${args[0] ?? ""}`, `npx ${FLOW_PACKAGE}@${version} ${args.join(" ")}`), run.output);
   return false;
@@ -127,7 +136,7 @@ async function runFlow(context: Context, version: string, args: string[]): Promi
  */
 async function applyFlow(context: Context, version: string): Promise<boolean> {
   const retry = `npx ${FLOW_PACKAGE}@${version} apply --yes`;
-  const result = await captureNpx(context.root, [`${FLOW_PACKAGE}@${version}`, "apply", "--yes", "--json"]);
+  const result = await captureNpx(context.root, [`${FLOW_PACKAGE}@${version}`, "apply", "--yes", "--json"], false, { [LANG_VAR]: currentLang() });
   const output = `${result?.out ?? ""}${result?.err ?? ""}`;
   if (result === null || result.status !== 0) {
     context.fail(ui.pieces.common.failed("issue-flow apply", retry), output);
@@ -151,11 +160,12 @@ async function applyFlow(context: Context, version: string): Promise<boolean> {
  * The flow's own `doctor --json` at a version.
  * @param root - The repo.
  * @param version - The version, 0.2.0 or later.
+ * @param lang - The language of its details: English to read them, the terminal's to show them.
  * @param lookup - True to give up after the lookups' time limit, as the status does.
  * @returns Its checks, or null if it could not run or its output is not a list.
  */
-async function flowDoctor(root: string, version: string, lookup = false): Promise<FlowCheck[] | null> {
-  const result = await captureNpx(root, [`${FLOW_PACKAGE}@${version}`, "doctor", "--json"], lookup);
+async function flowDoctor(root: string, version: string, lang: Lang, lookup = false): Promise<FlowCheck[] | null> {
+  const result = await captureNpx(root, [`${FLOW_PACKAGE}@${version}`, "doctor", "--json"], lookup, { [LANG_VAR]: lang });
   try {
     const found: unknown = JSON.parse(result?.out ?? "");
     return Array.isArray(found) ? (found as FlowCheck[]) : null;
@@ -297,7 +307,7 @@ export async function issueFlowStatus(root: string): Promise<PieceStatus> {
   const latest = await npmLatest(FLOW_PACKAGE);
   const behind = installed !== null && latest !== null && compareVersions(latest, installed) > 0;
   const target = installed === null || behind ? latest : installed;
-  const [missing, checks, minimum] = await Promise.all([target === null ? [] : missingLabels(root, target), installed !== null && !behind && usesApply(installed) ? flowDoctor(root, installed, true) : null, target === null ? null : restMinimum(target)]);
+  const [missing, checks, minimum] = await Promise.all([target === null ? [] : missingLabels(root, target), installed !== null && !behind && usesApply(installed) ? flowDoctor(root, installed, "en", true) : null, target === null ? null : restMinimum(target)]);
   const step = stepFor(installed, latest, root, installed !== null && checks !== null && needsRepair(checks, installed));
   const rest = target === null || minimum === null ? null : restStep(root, target, minimum);
   const known = `${latest === null ? said.npmDown : ""}${missing === null ? ui.pieces.flow.labelsUnread : ""}`;
@@ -320,7 +330,7 @@ export async function issueFlowChecks(root: string): Promise<Check[]> {
   if (installed === null) return [{ name: NAME, status: "info", detail: ui.pieces.common.notExact(spec) }];
   if (compareVersions(installed, JSON_DOCTOR) < 0) return [{ name: NAME, status: "info", detail: said.noJsonDoctor(installed) }];
   const labelsRead = missingLabels(root, installed);
-  const found = await flowDoctor(root, installed);
+  const found = await flowDoctor(root, installed, currentLang());
   const own: Check[] = found !== null
     ? found.map((check) => ({ name: `${NAME}: ${String(check.name)}`, status: check.ok === true ? "ok" : "fail", detail: String(check.detail) }))
     : [{ name: NAME, status: "fail", detail: ui.pieces.common.doctorFailed(`npx ${FLOW_PACKAGE}@${installed} doctor`) }];

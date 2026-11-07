@@ -7,7 +7,7 @@ import { en } from "../dist/texts/en.js";
 import { es } from "../dist/texts/es.js";
 import { phrasesIn, useLang } from "../dist/texts/index.js";
 import { commitLine } from "../dist/commit-texts.js";
-import { installedRepo, makeRepo } from "./helpers.mjs";
+import { installedRepo, makeRepo, NPM } from "./helpers.mjs";
 
 // Every key of a catalog, as dotted paths, down to its texts and functions.
 const keys = (value, prefix = "") =>
@@ -117,4 +117,68 @@ test("an error that stops the command is a block on stderr, in the language aske
   assert.match(es.err, /^\n  \[!\] No pude seguir\n\n  \.agents\/kitchen\.json no es JSON válido/);
   assert.equal(en.status, 1);
   assert.match(en.err, /\[!\] Could not go on\n\n  \.agents\/kitchen\.json is not valid JSON/);
+});
+
+// The language variables that agent-kitchen hands to claude-repo-guard and issue-flow.
+const FLOW_030 = JSON.stringify({ ...NPM, "@ramon-sg/issue-flow": "0.3.0" });
+const runsOf = (repo, prefix) => repo.log().filter((call) => call.program === "npx" && String(call.args[1]).startsWith(prefix));
+const guardRuns = (repo) => runsOf(repo, "github:ramon-sg/claude-repo-guard");
+const flowRuns = (repo) => runsOf(repo, "@ramon-sg/issue-flow@");
+const command = (call) => call.args.slice(2).join(" ");
+// A repo whose guard tags reach 0.7.0, the first that speaks English (it installs with apply).
+const repoWithGuard070 = () => makeRepo({ tags: { "ramon-sg/claude-repo-guard": ["0.7.0"], "ramon-sg/agent-skills": ["0.2.0"] } });
+const applies = (runs) => runs.filter((call) => command(call).startsWith("apply"));
+
+test("with --lang en, the guard's and the flow's apply get their language in en", () => {
+  const repo = repoWithGuard070();
+
+  const r = repo.cli(["--yes", "--lang", "en"], { env: { FAKE_NPM: FLOW_030 } });
+
+  assert.equal(r.status, 0, r.err);
+  assert.deepEqual(applies(guardRuns(repo)).map((call) => call.guardLang), ["en"]);
+  assert.deepEqual(applies(flowRuns(repo)).map((call) => call.flowLang), ["en"]);
+});
+
+test("with no language asked for, the guard's and the flow's apply get es", () => {
+  const repo = repoWithGuard070();
+
+  const r = repo.cli(["--yes"], { env: { FAKE_NPM: FLOW_030 } });
+
+  assert.equal(r.status, 0, r.err);
+  assert.deepEqual(applies(guardRuns(repo)).map((call) => call.guardLang), ["es"]);
+  assert.deepEqual(applies(flowRuns(repo)).map((call) => call.flowLang), ["es"]);
+});
+
+test("agent-kitchen's language wins over one the shell already has for the tools", () => {
+  const repo = repoWithGuard070();
+
+  const r = repo.cli(["--yes", "--lang", "en"], { env: { FAKE_NPM: FLOW_030, CLAUDE_REPO_GUARD_LANG: "fr", ISSUE_FLOW_LANG: "fr" } });
+
+  assert.equal(r.status, 0, r.err);
+  assert.deepEqual(applies(guardRuns(repo)).map((call) => call.guardLang), ["en"]);
+  assert.deepEqual(applies(flowRuns(repo)).map((call) => call.flowLang), ["en"]);
+});
+
+test("each tool gets only its own language variable", () => {
+  const repo = repoWithGuard070();
+
+  const r = repo.cli(["--yes", "--lang", "en"], { env: { FAKE_NPM: FLOW_030 } });
+
+  assert.equal(r.status, 0, r.err);
+  assert.ok(guardRuns(repo).length > 0 && flowRuns(repo).length > 0);
+  assert.ok(guardRuns(repo).every((call) => call.flowLang === null));
+  assert.ok(flowRuns(repo).every((call) => call.guardLang === null));
+});
+
+test("the flow's doctor speaks the terminal's language in doctor, English where its text is read, and the guard's gets none", () => {
+  const repo = repoWithGuard070();
+  repo.cli(["--yes"], { env: { FAKE_NPM: FLOW_030 } });
+  const doctors = (prefix) => runsOf(repo, prefix).filter((call) => command(call).startsWith("doctor"));
+
+  repo.cli(["doctor"], { env: { FAKE_NPM: FLOW_030 } });
+  assert.deepEqual(doctors("@ramon-sg/issue-flow@").map((call) => call.flowLang), ["es"]);
+  assert.deepEqual(doctors("github:ramon-sg/claude-repo-guard").map((call) => call.guardLang), [null]);
+
+  repo.cli(["--dry-run"], { env: { FAKE_NPM: FLOW_030 } });
+  assert.deepEqual(doctors("@ramon-sg/issue-flow@").map((call) => call.flowLang), ["en"]);
 });

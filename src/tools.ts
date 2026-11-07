@@ -252,11 +252,12 @@ export interface ToolRun {
  * `--verbose`. It must not ask anything: the person answered before the steps ran.
  * @param root - The repo.
  * @param args - The package and its arguments.
+ * @param env - Variables added to the environment, such as the tool's language.
  * @returns Whether it exited 0, and what it printed.
  * @example await runNpx(root, ["agent-cloud-kit@1.0.0", "init"])
  */
-export async function runNpx(root: string, args: string[]): Promise<ToolRun> {
-  const result = await run("npx", ["--yes", ...args], { cwd: root, inherit: verbose });
+export async function runNpx(root: string, args: string[], env?: NodeJS.ProcessEnv): Promise<ToolRun> {
+  const result = await run("npx", ["--yes", ...args], { cwd: root, inherit: verbose, env });
   return { ok: result.status === 0, output: `${result.out}${result.err}` };
 }
 
@@ -276,11 +277,12 @@ export function failedOutput(output: string): string {
  * @param root - The repo.
  * @param args - The package and its arguments.
  * @param lookup - True to give up after the lookups' time limit, for a read that only informs.
+ * @param env - Variables added to the environment, such as the tool's language.
  * @returns Its stdout, stderr and exit code, or null if npx could not start.
  * @example await captureNpx(root, ["@ramon-sg/issue-flow@0.2.0", "doctor", "--json"])
  */
-export async function captureNpx(root: string, args: string[], lookup = false): Promise<{ out: string; err: string; status: number | null } | null> {
-  const result = await run("npx", ["--yes", ...args], { cwd: root, ...(lookup ? { timeout: LOOKUP_TIMEOUT_MS } : {}) });
+export async function captureNpx(root: string, args: string[], lookup = false, env?: NodeJS.ProcessEnv): Promise<{ out: string; err: string; status: number | null } | null> {
+  const result = await run("npx", ["--yes", ...args], { cwd: root, env, ...(lookup ? { timeout: LOOKUP_TIMEOUT_MS } : {}) });
   return result.status === null && result.out === "" ? null : { out: result.out, err: result.err, status: result.status };
 }
 
