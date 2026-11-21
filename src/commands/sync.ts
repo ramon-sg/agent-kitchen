@@ -29,7 +29,7 @@
  * uses, writes all of them to the file, and then goes on as usual.
  * The run ends in a block with Kuro (banner.ts): how it went and what is left to do.
  */
-import { rmSync } from "node:fs";
+import { existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { type Block, show } from "../banner.js";
 import { DECIDABLE, decide, DECISIONS, off, readDecisions, type Saved, undecided, writeDecisions } from "../decisions.js";
@@ -45,7 +45,7 @@ import { agentsMdStatus, NAME as AGENTS_MD } from "../pieces/agents-md.js";
 import { NAME as SKILLS_MANAGER, skillsManagerStatus } from "../pieces/skills-manager.js";
 import { MOVED_PIECES, NAME as RUNNER, runnerStatus } from "../pieces/runner.js";
 import { dependencyEntries, dependencyVersion, mainCheckout, ownDependencies, packageManager, packageText, readJson } from "../repo.js";
-import { download, failedOutput, previewRunner, repoMode, runInstall, setVerbose, toolText } from "../tools.js";
+import { download, failedOutput, isExactVersion, previewRunner, repoMode, runInstall, setVerbose, toolText } from "../tools.js";
 import { CLOUD_CONFIG, CLOUD_PACKAGE, GUARD_MANIFEST, toolVersion } from "../runner-mode.js";
 import { commitLine, DECISIONS_LINE, runnerLine } from "../commit-texts.js";
 import { chooseRunner, RUNNER_FILE, type Runner, writeRunnerConfig } from "@ramon-sg/runner";
@@ -111,7 +111,7 @@ async function statusesOf(root: string, skip: string[], runnerOption?: Runner): 
   if (moving === null || !moving.steps.some((step) => step.text.kind === "runner-migrate")) return statuses;
   for (const status of statuses.filter((each) => MOVED_PIECES.includes(each.name) && each.steps.length > 0)) {
     status.steps = [];
-    status.state += ui.pieces.runner.movedByRunner;
+    if (status.installed) status.state += ui.pieces.runner.movedByRunner;
   }
   return statuses;
 }
@@ -476,12 +476,14 @@ async function applyIn(work: Workplace, options: SyncOptions, out: Output): Prom
   const dropRunner = (): void => {
     if (wroteRunner) rmSync(join(root, RUNNER_FILE), { force: true });
   };
-  let statuses = await statusesOf(root, skip, options.runner);
+  // A new repo was just written with its runner: nothing in it is there to rewrite.
+  const forced = created === null ? options.runner : undefined;
+  let statuses = await statusesOf(root, skip, forced);
   if (saved !== null && !asks && !options.dryRun) {
     const left = undecided(saved).filter((name) => statuses.some((status) => status.name === name && !status.installed));
     if (left.length > 0) {
       skip.push(...left);
-      statuses = await statusesOf(root, skip, options.runner);
+      statuses = await statusesOf(root, skip, forced);
       out.stdout(`${ui.undecided(left)}\n`);
     }
   }
@@ -529,6 +531,7 @@ async function applyIn(work: Workplace, options: SyncOptions, out: Output): Prom
   if (chosen.length === 0) return options.yes ? endWithoutSteps(ui.allSet, [ui.onlyOptional(steps.map(stepLabel))]) : endWithoutSteps(ui.noSteps("none", wrote));
   if (wroteRunner && created !== null) out.stdout(`${ui.runnerWritten(RUNNER_FILE, created)}\n`);
   const pkgBefore = packageText(root);
+  const runnerBefore = existsSync(join(root, RUNNER_FILE));
   const failedSteps: Step[] = [];
   for (const step of chosen) {
     if (!(await runStep(root, step, progress, out))) failedSteps.push(step);
@@ -536,7 +539,8 @@ async function applyIn(work: Workplace, options: SyncOptions, out: Output): Prom
   const failed = failedSteps.map(stepLabel);
   // A runner.json this run wrote, before the steps (a new repo) or in one (the move), is not committed yet.
   const moved = chosen.some((step) => step.piece === RUNNER && !RUNNER_CHANGES.includes(step.text.kind) && !failedSteps.includes(step));
-  const runnerNew = wroteRunner || moved;
+  // A runner.json this run wrote, in a step that failed after writing it too.
+  const runnerNew = wroteRunner || (!runnerBefore && existsSync(join(root, RUNNER_FILE)));
   if (work.kind === "pr") return openPr(work, commitLabels(chosen.filter((step) => !failedSteps.includes(step)), wrote, wroteRunner ? created : null), failed, progress, out, moved);
   const installFailed = packageText(root) !== pkgBefore && needsInstall(root, moved) ? !(await install(root, progress, out)) : false;
   if (installFailed) failed.push(phrases({ kind: "install-deps", manager: packageManager(root) }).menu);
@@ -552,9 +556,13 @@ async function applyIn(work: Workplace, options: SyncOptions, out: Output): Prom
  */
 function cloudNext(root: string, skip: string[]): Pick<Block, "next"> {
   if (skip.includes(CLOUD)) return {};
-  const version = repoMode(root).kind === "runner" ? toolVersion(root, CLOUD_PACKAGE) : null;
+  const runnerMode = repoMode(root).kind === "runner";
+  const version = runnerMode ? toolVersion(root, CLOUD_PACKAGE) : null;
   if (version !== null) return { next: { label: ui.cloudNext, command: toolText(root, [`${CLOUD_PACKAGE}@${version}`, "prepare"]) } };
-  if (readJson(root, ".claude/cloud.json") === null) return {};
+  const config = readJson(root, ".claude/cloud.json");
+  if (config === null) return {};
+  // runner.json exists but does not pin it yet (a move cut short): the repo's runner, and the version cloud.json still has.
+  if (runnerMode) return { next: { label: ui.cloudNext, command: toolText(root, [typeof config.version === "string" && isExactVersion(config.version) ? `${CLOUD_PACKAGE}@${config.version}` : CLOUD_PACKAGE, "prepare"]) } };
   return { next: { label: ui.cloudNext, command: "npx agent-cloud-kit prepare" } };
 }
 
@@ -568,7 +576,7 @@ function cloudNext(root: string, skip: string[]): Pick<Block, "next"> {
  * @returns Whether to install.
  */
 function needsInstall(root: string, moved = false): boolean {
-  return repoMode(root).kind !== "runner" || ownDependencies(root).length > 0 || (moved && dependencyEntries(readJson(root, "package.json")).length > 0);
+  return repoMode(root).kind !== "runner" || ownDependencies(root).length > 0 || (moved && dependencyEntries(root, readJson(root, "package.json")).length > 0);
 }
 
 /**

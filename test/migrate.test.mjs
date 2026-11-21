@@ -11,7 +11,7 @@
 // cleanup, taking out only what that run can, and in runner mode only from devDependencies and
 // never a lockfile alone, nor one while package.json keeps any dependency entry.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import { installedRepo, RULE } from "./helpers.mjs";
@@ -98,6 +98,28 @@ test("with dependencies of its own and a pnpm lockfile, the move runs pnpm insta
   assert.ok(repo.exists("pnpm-lock.yaml"));
   assert.equal(repo.log().filter((call) => call.program === "pnpm" && call.args[0] === "install").length, 1);
   assert.deepEqual(repo.read(".agents/runner.json").tools, LATEST);
+});
+
+test("a pnpm workspace root counts as having dependencies: the move keeps pnpm-lock.yaml and node_modules and runs pnpm install", () => {
+  const repo = legacyRepo({ lock: "pnpm-lock.yaml" });
+  repo.write("pnpm-workspace.yaml", "packages:\n  - 'packages/*'\n");
+
+  const r = repo.cli(["apply", "--yes"], env());
+
+  assert.equal(r.status, 0, `${r.out}\n${r.err}`);
+  assert.ok(repo.exists("pnpm-lock.yaml"));
+  assert.ok(repo.exists("node_modules"));
+  assert.equal(repo.log().filter((call) => call.program === "pnpm" && call.args[0] === "install").length, 1);
+});
+
+test("while the move is offered, only installed pieces say they go in the runner step", () => {
+  const repo = legacyRepo();
+  rmSync(join(repo.main, ".claude/cloud.json"));
+
+  const r = repo.cli(["apply", "--dry-run"], { env: { ...env().env, FAKE_NPM_VERSIONS: JSON.stringify({ "agent-cloud-kit": ["0.8.0", "0.9.1", "1.0.0"] }) } });
+
+  const line = (name) => r.out.split("\n").find((each) => new RegExp(`^ {2}${name}\\b`).test(each)) ?? "";
+  assert.doesNotMatch(line("agent-cloud-kit"), /va en el paso de runner/, r.out);
 });
 
 test("with no skills-manager on npm at or above 1.5.0 there is no move: the table names it and its minimum, and nothing changes", () => {
@@ -188,6 +210,7 @@ test("a move cut short by a failure is finished by the next apply: the failed to
   const repo = legacyRepo();
   const first = repo.cli(["apply", "--yes"], { env: { FAKE_NPM: JSON.stringify(LATEST), FAKE_FAIL: "claude-repo-guard@0.8.0 apply" } });
   assert.equal(first.status, 1, first.out);
+  assert.match(first.out, /\.agents\/runner\.json es nuevo y quedó sin commit/);
   const pins = repo.read(".agents/runner.json").tools;
   assert.equal(pins["@ramon-sg/claude-repo-guard"], undefined, "a tool whose part failed has no entry");
   assert.equal(pins["agent-cloud-kit"], undefined);
@@ -198,6 +221,7 @@ test("a move cut short by a failure is finished by the next apply: the failed to
   const second = repo.cli(["apply", "--yes"], env());
 
   assert.equal(second.status, 0, `${second.out}\n${second.err}`);
+  assert.doesNotMatch(second.out, /es nuevo y quedó sin commit/);
   const calls = toolLog(repo).map((call) => call.text);
   for (const call of ["@ramon-sg/claude-repo-guard@0.8.0 apply --yes", "agent-cloud-kit@1.0.0 init", "@ramon-sg/skills-manager@1.5.1 install"]) assert.ok(calls.includes(call), `${call} in ${calls.join("\n")}`);
   assertMoved(repo);

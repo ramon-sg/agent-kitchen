@@ -100,6 +100,18 @@ export function dependencyVersion(pkg: Record<string, unknown> | null, name: str
 export const ECOSYSTEM_TOOLS = ["@ramon-sg/issue-flow", "@ramon-sg/github-rest", "@ramon-sg/skills-manager", "@ramon-sg/claude-repo-guard", "agent-cloud-kit"];
 
 /**
+ * Whether the repo is a workspace root: `workspaces` in package.json, or a pnpm-workspace.yaml.
+ * @param root - The repo.
+ * @returns True if its packages may have dependencies of their own.
+ * @example hasWorkspaces(root) // true
+ */
+export function hasWorkspaces(root: string): boolean {
+  const workspaces = readJson(root, "package.json")?.workspaces;
+  if (Array.isArray(workspaces) ? workspaces.length > 0 : isObject(workspaces) && Array.isArray(workspaces.packages) && workspaces.packages.length > 0) return true;
+  return existsSync(join(root, "pnpm-workspace.yaml"));
+}
+
+/**
  * What the repo itself needs installed: the names in `dependencies`, `devDependencies`,
  * `optionalDependencies` and `peerDependencies` that are not tools of the ecosystem, and
  * `workspaces` if it has any, since its packages have dependencies of their own.
@@ -110,10 +122,8 @@ export const ECOSYSTEM_TOOLS = ["@ramon-sg/issue-flow", "@ramon-sg/github-rest",
 export function ownDependencies(root: string): string[] {
   const pkg = readJson(root, "package.json");
   const keys = (field: string): string[] => (isObject(pkg?.[field]) ? Object.keys(pkg[field]) : []);
-  const workspaces = pkg?.workspaces;
-  const hasWorkspaces = Array.isArray(workspaces) ? workspaces.length > 0 : isObject(workspaces) && Array.isArray(workspaces.packages) && workspaces.packages.length > 0;
   const names = ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"].flatMap(keys).filter((name) => !ECOSYSTEM_TOOLS.includes(name));
-  return [...new Set([...names, ...(hasWorkspaces ? ["workspaces"] : [])])];
+  return [...new Set([...names, ...(hasWorkspaces(root) ? ["workspaces"] : [])])];
 }
 
 /** The fields of package.json that hold dependencies. */
@@ -122,20 +132,19 @@ const DEPENDENCY_FIELDS = ["dependencies", "devDependencies", "optionalDependenc
 /**
  * Every dependency entry a package.json has, ecosystem tools included, and "workspaces" if it has
  * any: whether the repo needs its lockfile and node_modules at all.
+ * @param root - The repo.
  * @param pkg - The package.json, or null.
  * @param without - Entries about to go, and the fields they go from.
  * @returns The entries, as `<field>:<name>` (and "workspaces").
- * @example dependencyEntries({ dependencies: { react: "19.0.0" } }) // ["dependencies:react"]
+ * @example dependencyEntries(root, { dependencies: { react: "19.0.0" } }) // ["dependencies:react"]
  */
-export function dependencyEntries(pkg: Record<string, unknown> | null, without: { names: string[]; fields: string[] } = { names: [], fields: [] }): string[] {
+export function dependencyEntries(root: string, pkg: Record<string, unknown> | null, without: { names: string[]; fields: string[] } = { names: [], fields: [] }): string[] {
   const entries = DEPENDENCY_FIELDS.flatMap((field) => {
     const deps = pkg?.[field];
     if (!isObject(deps)) return [];
     return Object.keys(deps).filter((name) => !(without.fields.includes(field) && without.names.includes(name))).map((name) => `${field}:${name}`);
   });
-  const workspaces = pkg?.workspaces;
-  const hasWorkspaces = Array.isArray(workspaces) ? workspaces.length > 0 : isObject(workspaces) && Array.isArray(workspaces.packages) && workspaces.packages.length > 0;
-  return hasWorkspaces ? [...entries, "workspaces"] : entries;
+  return hasWorkspaces(root) ? [...entries, "workspaces"] : entries;
 }
 
 /** The lockfile of each package manager, in the order they are looked for. */

@@ -384,7 +384,7 @@ function leftovers(root: string, can: (pkg: string) => boolean, moving: boolean)
   const cloudVersion = can(CLOUD_PACKAGE) && readJson(root, CLOUD_CONFIG)?.version !== undefined;
   const traced = moving || deps.length > 0 || cloudVersion;
   // The lockfile and node_modules go only if package.json keeps no dependency at all once the cleanup is done.
-  const kept = dependencyEntries(pkg, { names: deps, fields: moving ? ["dependencies", "devDependencies"] : ["devDependencies"] });
+  const kept = dependencyEntries(root, pkg, { names: deps, fields: moving ? ["dependencies", "devDependencies"] : ["devDependencies"] });
   const files = !traced || kept.length > 0 ? [] : [...lockfiles(root), ...(existsSync(join(root, "node_modules")) ? ["node_modules"] : [])];
   const version = tools[SKILLS_MANAGER];
   const command = version === undefined || mode.kind !== "runner" ? null : toolCommandText(mode.runner, SKILLS_MANAGER, version, ["session-notice"]);
@@ -453,7 +453,7 @@ function finishMove(context: Context, moving: boolean): string[] {
   if (left.hook !== null && pinSessionNotice(root, left.hook)) context.note(ui.pieces.skillsManager.hookPinned(left.hook));
   for (const path of left.files) rmSync(join(root, path), { recursive: true, force: true });
   if (left.files.length > 0) context.note(said.removed(left.files));
-  if (dependencyEntries(readJson(root, "package.json")).length > 0 && (moving || changed)) context.note(said.installLater(packageManager(root)));
+  if (dependencyEntries(root, readJson(root, "package.json")).length > 0 && (moving || changed)) context.note(said.installLater(packageManager(root)));
   return labels(left);
 }
 

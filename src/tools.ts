@@ -14,8 +14,18 @@
  * reads one line per step. `--verbose` shows it as it comes.
  */
 import { spawn } from "node:child_process";
+import { realpathSync } from "node:fs";
 import { effectiveRunner, readRunnerConfig, RunnerFileError, setTool, toolCommand, toolCommandText, writeRunnerConfig, type Runner, type RunnerConfig } from "@ramon-sg/runner";
 import { KitError } from "./output.js";
+
+/** The real path of a folder, or the path itself if it does not exist. */
+function realPath(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return path;
+  }
+}
 
 /** A release version. */
 const VERSION = /^(\d+)\.(\d+)\.(\d+)$/;
@@ -132,6 +142,8 @@ export function compareSemver(left: string, right: string): number {
 function run(program: string, args: string[], options: { cwd?: string; timeout?: number; env?: NodeJS.ProcessEnv; unset?: string[]; inherit?: boolean } = {}): Promise<Finished> {
   return new Promise((resolve) => {
     const env = { ...process.env, ...options.env };
+    // A tool in a clone must work in its cwd: agent-cloud-kit prefers this one, and it names the checkout.
+    if (options.cwd !== undefined && env.CLAUDE_PROJECT_DIR !== undefined && realPath(env.CLAUDE_PROJECT_DIR) !== realPath(options.cwd)) delete env.CLAUDE_PROJECT_DIR;
     for (const name of options.unset ?? []) delete env[name];
     const child = spawn(program, args, { cwd: options.cwd, env, stdio: options.inherit === true ? "inherit" : ["ignore", "pipe", "pipe"] });
     let out = "";

@@ -221,6 +221,34 @@ test("--runner node in a new repo writes runner.json with node, whatever bunx is
   assert.deepEqual([...new Set(repo.programs())], ["npx"]);
 });
 
+test("--runner in a new repo only writes runner.json: no rewrite step, and package.json's packageManager stays", () => {
+  const repo = makeFreshRepo();
+  repo.write("package.json", { packageManager: "pnpm@9.0.0" });
+
+  const dry = repo.cli(["apply", "--dry-run", "--runner", "node"], change);
+  const r = repo.cli(["apply", "--yes", "--runner", "node"], change);
+
+  assert.equal(r.status, 0, `${r.out}\n${r.err}`);
+  assert.doesNotMatch(`${dry.out}${r.out}`, /Reescribir con el ejecutor/);
+  assert.equal(repo.read("package.json").packageManager, "pnpm@9.0.0");
+  assert.equal(repo.read(".agents/runner.json").runner, "node");
+});
+
+test("tools run for a --pr clone do not see CLAUDE_PROJECT_DIR", () => {
+  const repo = installedRepo({ cloud: "0.9.0", origin: true });
+  repo.git("add", "-A");
+  repo.git("commit", "-q", "-m", "tools");
+  repo.git("push", "-q", "origin", "main");
+
+  const r = repo.cli(["apply", "--yes", "--pr"], { env: { CLAUDE_PROJECT_DIR: repo.main } });
+
+  assert.equal(r.status, 0, `${r.out}\n${r.err}`);
+  // Only the tools that ran in the clone: opening the PR runs in the checkout itself, where the variable is right.
+  const tools = repo.log().filter((call) => ["npx", "bunx"].includes(call.program) && /agent-kitchen-pr-/.test(call.cwd));
+  assert.ok(tools.length > 0, "a tool ran");
+  assert.deepEqual(tools.filter((call) => call.projectDir !== null), []);
+});
+
 test("--runner deno is a usage error, and doctor takes no --runner", () => {
   const repo = makeRepo();
 
