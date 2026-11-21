@@ -3,15 +3,26 @@
 // first in PATH, local GitHub repos with release tags (git reaches them through an
 // insteadOf rewrite of https://github.com/, so `git ls-remote` is the real one), and the
 // compiled CLI.
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const CLI = join(HERE, "..", "dist", "cli.js");
 const GIT_ENV = { GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@t", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@t" };
+
+// The fake npm registry (fake-registry.mjs), started once per test file. It dies with the test
+// process: its stdin closes, and it is not waited for.
+const registry = spawn(process.execPath, [join(HERE, "fake-registry.mjs"), realpathSync(tmpdir())], { stdio: ["pipe", "pipe", "inherit"] });
+const PORT = await new Promise((resolve, reject) => {
+  registry.once("error", reject);
+  registry.stdout.once("data", (chunk) => resolve(String(chunk).trim()));
+});
+registry.unref();
+registry.stdin.unref();
+registry.stdout.unref();
 
 // The latest of everything on npm, unless a test says otherwise.
 export { GIT_ENV };
@@ -79,10 +90,14 @@ export function makeRepo({ tags = { "ramon-sg/claude-repo-guard": ["0.1.0", "0.2
     chmodSync(join(bin, name), 0o755);
   }
   const log = join(tmp, "calls.jsonl");
+  const id = basename(tmp);
+  // What the fake registry answers for this repo: the FAKE_NPM and FAKE_NPM_DEPS of the run.
+  const serve = (env) => writeFileSync(join(tmp, "registry.json"), JSON.stringify({ latest: JSON.parse(env.FAKE_NPM ?? "{}"), deps: JSON.parse(env.FAKE_NPM_DEPS ?? "{}") }));
   const env = (extra = {}) => ({
     ...process.env,
     PATH: `${bin}:${process.env.PATH}`,
     FAKE_LOG: log,
+    AGENT_KITCHEN_REGISTRY: `http://127.0.0.1:${PORT}/${id}`,
     FAKE_NPM: JSON.stringify(NPM),
     FAKE_CANDIDATES: JSON.stringify(CANDIDATES),
     GIT_CONFIG_COUNT: "1",
@@ -104,7 +119,9 @@ export function makeRepo({ tags = { "ramon-sg/claude-repo-guard": ["0.1.0", "0.2
     // Runs the CLI with no terminal; the log of calls starts empty.
     cli(args, { env: extra = {}, cwd = main } = {}) {
       writeFileSync(log, "");
-      const result = spawnSync(process.execPath, [CLI, ...args], { cwd, encoding: "utf8", env: env(extra) });
+      const full = env(extra);
+      serve(full);
+      const result = spawnSync(process.execPath, [CLI, ...args], { cwd, encoding: "utf8", env: full });
       return { status: result.status, out: result.stdout, err: result.stderr };
     },
     // The npx and bunx calls of the last run, without `--yes` or `--bun`, nor the downloads

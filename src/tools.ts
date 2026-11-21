@@ -1,7 +1,7 @@
 /**
  * @file How agent-kitchen reaches the other tools and their releases: the repo's runner to run
  * them (always by their scoped name or GitHub spec, because the unscoped names on npm belong to
- * other people), `npm view` for the latest version on npm and a version's dependencies, and `git ls-remote` for the latest
+ * other people), an HTTP read of the npm registry for the latest version and a version's dependencies, and `git ls-remote` for the latest
  * `vX.Y.Z` tag on GitHub. Everything is asynchronous so the lookups run at the same time,
  * and each lookup runs once per process. A lookup that fails, or takes over 20 seconds,
  * gives null: the piece is shown, not offered. git never asks for credentials here.
@@ -187,13 +187,34 @@ export function npmLatestExact(name: string): Promise<string | null> {
 }
 
 /**
- * What `npm view <name> version` prints.
+ * A package's page on the npm registry (its packument).
+ * @param name - The package, scoped or not; a scope's slash goes encoded as npm does.
+ * @returns What the registry answers, or null if it cannot be reached, does not answer 200 or does not send JSON.
+ */
+async function packument(name: string): Promise<Record<string, unknown> | null> {
+  const registry = (process.env.AGENT_KITCHEN_REGISTRY || "https://registry.npmjs.org").replace(/\/+$/, "");
+  try {
+    const response = await fetch(`${registry}/${name.replace("/", "%2f")}`, { signal: AbortSignal.timeout(LOOKUP_TIMEOUT_MS), headers: { accept: "application/json" } });
+    if (response.status !== 200) return null;
+    const found: unknown = await response.json();
+    return typeof found === "object" && found !== null && !Array.isArray(found) ? (found as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Whether a value is a plain object. */
+const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
+
+/**
+ * The version npm calls `latest`.
  * @param name - The package.
- * @returns The text, or "" if npm fails.
+ * @returns The version, or "" if the registry cannot tell.
  */
 async function npmVersion(name: string): Promise<string> {
-  const result = await run("npm", ["view", name, "version", "--fetch-retries=0"], { timeout: LOOKUP_TIMEOUT_MS });
-  return result.status === 0 ? result.out.trim() : "";
+  const tags = (await packument(name))?.["dist-tags"];
+  const latest = isRecord(tags) ? tags.latest : undefined;
+  return typeof latest === "string" ? latest.trim() : "";
 }
 
 /**
@@ -204,14 +225,12 @@ async function npmVersion(name: string): Promise<string> {
  */
 export function npmDependencies(spec: string): Promise<Record<string, string> | null> {
   return once(`npm-deps:${spec}`, async () => {
-    const result = await run("npm", ["view", spec, "dependencies", "--json", "--fetch-retries=0"], { timeout: LOOKUP_TIMEOUT_MS });
-    if (result.status !== 0) return null;
-    try {
-      const found: unknown = JSON.parse(result.out);
-      return typeof found === "object" && found !== null && !Array.isArray(found) ? (found as Record<string, string>) : null;
-    } catch {
-      return null;
-    }
+    const at = spec.lastIndexOf("@");
+    if (at <= 0) return null;
+    const versions = (await packument(spec.slice(0, at)))?.versions;
+    const found = isRecord(versions) ? versions[spec.slice(at + 1)] : undefined;
+    if (!isRecord(found)) return null;
+    return found.dependencies === undefined ? {} : isRecord(found.dependencies) ? (found.dependencies as Record<string, string>) : null;
   });
 }
 
