@@ -89,7 +89,10 @@ export interface Catalog {
   /** At the end of a run in the checkout that created the file: it is not committed. */
   runnerLeft: (file: string) => string;
   /** `--runner` names the runner the repo already has. */
-  runnerSame: (runner: string) => string;
+  runnerIgnored: (why: string) => string;
+  /** Why `--runner` did nothing: the runner piece is left out, or the repo has no tool to move. */
+  runnerIgnoredSkipped: string;
+  runnerIgnoredNone: string;
   /** The same, as a warning after the program's name. */
   nothingChangedWarning: string;
   /** With --pr, before the clone: from which branch of origin. */

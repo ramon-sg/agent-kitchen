@@ -127,15 +127,38 @@ test("--runner bun in a node repo reruns the tools with bunx", () => {
   assert.deepEqual([...new Set(applies(repo).map((call) => call.program))], ["bunx"]);
 });
 
-test("--runner with the runner the repo has changes nothing and runs no tool", () => {
+test("--runner with the runner the repo has rewrites with it: it offers the step and reruns every tool's apply, leaving runner.json as it is", () => {
   const repo = runnerRepo({ pkg: { packageManager: "npm@10.0.0" } });
+  const before = repo.read(".agents/runner.json");
 
   const r = repo.cli(["apply", "--yes", "--runner", "bun"], change);
 
   assert.equal(r.status, 0, `${r.out}\n${r.err}`);
-  assert.match(r.out, /ya usa el ejecutor bun/);
-  assert.deepEqual(applies(repo), []);
-  assert.equal(repo.read("package.json").packageManager, "npm@10.0.0");
+  assert.match(r.out, /Hooks y atajos reescritos con el ejecutor bun/);
+  assert.deepEqual(repo.read(".agents/runner.json"), before);
+  assert.equal(applies(repo).length, 4);
+});
+
+test("a change cut short by a failed tool is finished by the same --runner again", () => {
+  const repo = runnerRepo();
+
+  const first = repo.cli(["apply", "--yes", "--runner", "node"], { env: { ...change.env, FAKE_FAIL: "claude-repo-guard" } });
+  const second = repo.cli(["apply", "--yes", "--runner", "node"], change);
+
+  assert.equal(first.status, 1);
+  assert.equal(second.status, 0, `${second.out}\n${second.err}`);
+  const guard = applies(repo).filter((call) => call.args.some((arg) => arg.startsWith("@ramon-sg/claude-repo-guard@")));
+  assert.deepEqual(guard.map((call) => call.program), ["npx"]);
+  assert.equal(repo.read(".agents/runner.json").runner, "node");
+});
+
+test("--runner that produces no step says so and why", () => {
+  const repo = runnerRepo();
+
+  const r = repo.cli(["apply", "--yes", "--skip", "runner", "--runner", "node"], change);
+
+  assert.match(r.err + r.out, /--runner no tuvo efecto: la pieza runner está fuera de esta corrida/);
+  assert.equal(repo.read(".agents/runner.json").runner, "bun");
 });
 
 test("--runner with --dry-run shows the step and writes nothing", () => {

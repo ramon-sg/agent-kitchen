@@ -24,6 +24,11 @@ export const es: Catalog = {
       doing: `Cambiando el ejecutor de ${from} a ${to}…`,
       done: `Ejecutor cambiado de ${from} a ${to}: ${list(tools)}`,
     }),
+    "runner-rewrite": ({ runner, tools }) => ({
+      menu: `Reescribir con el ejecutor ${runner} los hooks y atajos: ${list(tools)}`,
+      doing: `Reescribiendo hooks y atajos con el ejecutor ${runner}…`,
+      done: `Hooks y atajos reescritos con el ejecutor ${runner}: ${list(tools)}`,
+    }),
     "runner-migrate": ({ runner, tools }) => ({
       menu: `Pasar las herramientas a .agents/runner.json con el ejecutor ${runner}: ${list(tools)}`,
       doing: `Pasando las herramientas a .agents/runner.json con el ejecutor ${runner}…`,
@@ -170,7 +175,9 @@ export const es: Catalog = {
   },
   nothingChanged: "No se cambió nada.",
   runnerWillWrite: (file, runner) => `Repo nuevo: la corrida real creará ${file} con el ejecutor ${runner}; lo que sigue ya es en ese modo.`,
-  runnerSame: (runner) => `El repo ya usa el ejecutor ${runner}; no cambio nada del ejecutor.`,
+  runnerIgnored: (why) => `--runner no tuvo efecto: ${why}.`,
+  runnerIgnoredSkipped: "la pieza runner está fuera de esta corrida",
+  runnerIgnoredNone: "el repo no tiene herramientas que pasar a .agents/runner.json",
   runnerLeft: (file) => `${file} es nuevo y quedó sin commit; inclúyelo en el commit.`,
   runnerWritten: (file, runner) => `Repo nuevo: escribí ${file} con el ejecutor ${runner}; todas las herramientas se instalan con él.`,
   nothingChangedWarning: "no se cambió nada.",

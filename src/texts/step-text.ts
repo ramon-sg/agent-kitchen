@@ -12,6 +12,7 @@ type MaybeVersion = string | null;
 export type StepText =
   | { kind: "runner-migrate"; runner: string; tools: string[] }
   | { kind: "runner-finish"; left: string[] }
+  | { kind: "runner-rewrite"; runner: string; tools: string[] }
   | { kind: "runner-change"; from: string; to: string; tools: string[] }
   | { kind: "skills-manager-create"; version: string }
   | { kind: "skills-manager-add"; version: string }

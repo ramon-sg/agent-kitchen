@@ -69,6 +69,10 @@ export interface SyncOptions {
   runner?: Runner;
 }
 
+/** The kinds of the steps `--runner` makes: the move, and the change or rewrite of a repo in runner mode. */
+const RUNNER_CHANGES = ["runner-change", "runner-rewrite"];
+const RUNNER_STEPS = ["runner-migrate", ...RUNNER_CHANGES];
+
 /** Every piece, in the order its steps run: the move to runner.json first, so the rest run after it. */
 const PIECES = [RUNNER, SKILLS_MANAGER, FLOW, CLOUD, GUARD, SKILLS, AGENTS_MD];
 
@@ -102,7 +106,7 @@ async function statusesOf(root: string, skip: string[], runnerOption?: Runner): 
   const runner = skip.includes(RUNNER) ? null : runnerStatus(root, skip, runnerOption);
   const [moving, ...rest] = await Promise.all([runner, skillsManager, flow, cloud, guard, skills, agentsMd]);
   // In runner mode, finishing a move cut short runs last, after the tools it left without an entry; a change of runner runs first, so the other steps already use the new one.
-  const changing = moving?.steps.some((step) => step.text.kind === "runner-change") === true;
+  const changing = moving?.steps.some((step) => step.text.kind === "runner-change" || step.text.kind === "runner-rewrite") === true;
   const statuses = (moving?.installed === true && !changing ? [...rest, moving] : [moving, ...rest]).flatMap((status) => status ?? []);
   if (moving === null || !moving.steps.some((step) => step.text.kind === "runner-migrate")) return statuses;
   for (const status of statuses.filter((each) => MOVED_PIECES.includes(each.name) && each.steps.length > 0)) {
@@ -472,8 +476,6 @@ async function applyIn(work: Workplace, options: SyncOptions, out: Output): Prom
   const dropRunner = (): void => {
     if (wroteRunner) rmSync(join(root, RUNNER_FILE), { force: true });
   };
-  const mode = repoMode(root);
-  if (options.runner !== undefined && mode.kind === "runner" && mode.runner === options.runner && created === null) out.stdout(`${ui.runnerSame(options.runner)}\n`);
   let statuses = await statusesOf(root, skip, options.runner);
   if (saved !== null && !asks && !options.dryRun) {
     const left = undecided(saved).filter((name) => statuses.some((status) => status.name === name && !status.installed));
@@ -490,8 +492,14 @@ async function applyIn(work: Workplace, options: SyncOptions, out: Output): Prom
       for (const step of status.steps) step.fresh = true;
     }
   }
+  if (options.runner !== undefined && created === null && !statuses.some((status) => status.steps.some((step) => RUNNER_STEPS.includes(step.text.kind)))) {
+    const state = statuses.find((status) => status.name === RUNNER)?.state;
+    warn(out, ui.runnerIgnored(skip.includes(RUNNER) ? ui.runnerIgnoredSkipped : (state ?? ui.runnerIgnoredNone)));
+  }
   printStatus(statuses, off(saved).filter((name) => !options.skip.includes(name)), out);
-  const steps = statuses.flatMap((status) => status.steps);
+  // The end of a move cut short runs last, after the steps that pin what it waits for.
+  const all = statuses.flatMap((status) => status.steps);
+  const steps = [...all.filter((step) => step.text.kind !== "runner-finish"), ...all.filter((step) => step.text.kind === "runner-finish")];
   const progress = progressFor(out, options.verbose);
   // The next step for the cloud, said at the end of a run in the checkout; read then, since a step may install it.
   const cloud = (): Pick<Block, "next"> => (work.kind === "here" && !options.dryRun ? cloudNext(root, skip) : {});
@@ -527,7 +535,7 @@ async function applyIn(work: Workplace, options: SyncOptions, out: Output): Prom
   }
   const failed = failedSteps.map(stepLabel);
   // A runner.json this run wrote, before the steps (a new repo) or in one (the move), is not committed yet.
-  const moved = chosen.some((step) => step.piece === RUNNER && step.text.kind !== "runner-change" && !failedSteps.includes(step));
+  const moved = chosen.some((step) => step.piece === RUNNER && !RUNNER_CHANGES.includes(step.text.kind) && !failedSteps.includes(step));
   const runnerNew = wroteRunner || moved;
   if (work.kind === "pr") return openPr(work, commitLabels(chosen.filter((step) => !failedSteps.includes(step)), wrote, wroteRunner ? created : null), failed, progress, out, moved);
   const installFailed = packageText(root) !== pkgBefore && needsInstall(root, moved) ? !(await install(root, progress, out)) : false;

@@ -24,6 +24,11 @@ export const en: Catalog = {
       doing: `Changing the runner from ${from} to ${to}…`,
       done: `Runner changed from ${from} to ${to}: ${list(tools)}`,
     }),
+    "runner-rewrite": ({ runner, tools }) => ({
+      menu: `Rewrite the hooks and shortcuts with the ${runner} runner: ${list(tools)}`,
+      doing: `Rewriting hooks and shortcuts with the ${runner} runner…`,
+      done: `Hooks and shortcuts rewritten with the ${runner} runner: ${list(tools)}`,
+    }),
     "runner-migrate": ({ runner, tools }) => ({
       menu: `Move the tools to .agents/runner.json with the ${runner} runner: ${list(tools)}`,
       doing: `Moving the tools to .agents/runner.json with the ${runner} runner…`,
@@ -170,7 +175,9 @@ export const en: Catalog = {
   },
   nothingChanged: "Nothing was changed.",
   runnerWillWrite: (file, runner) => `New repo: the real run will create ${file} with the ${runner} runner; what follows is already in that mode.`,
-  runnerSame: (runner) => `The repo already uses the ${runner} runner; the runner stays as it is.`,
+  runnerIgnored: (why) => `--runner had no effect: ${why}.`,
+  runnerIgnoredSkipped: "the runner piece is left out of this run",
+  runnerIgnoredNone: "the repo has no tools to move to .agents/runner.json",
   runnerLeft: (file) => `${file} is new and uncommitted; include it in your commit.`,
   runnerWritten: (file, runner) => `New repo: wrote ${file} with the ${runner} runner; every tool installs with it.`,
   nothingChangedWarning: "nothing was changed.",

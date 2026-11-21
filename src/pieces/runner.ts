@@ -131,7 +131,7 @@ export async function runnerStatus(root: string, skip: string[], forced?: Runner
     // and its piece is left out, since nothing in this run will pin it.
     const pieceFor = (pkg: string): string => (pkg === GITHUB_REST ? FLOW : pieceOf(pkg));
     const left = labels(leftovers(root, (pkg) => mode.tools[pkg] !== undefined || !skip.includes(pieceFor(pkg)), false));
-    const change = forced === undefined || forced === mode.runner ? null : changeStep(mode.runner, forced, mode.tools, skip);
+    const change = forced === undefined ? null : changeStep(mode.runner, forced, mode.tools, skip);
     if (left.length === 0 && change?.step === undefined) return { ...base, installed: true, state: `${said.inRunner(mode.runner)}${change?.blocked ?? ""}`, steps: [] };
     const first = change?.step === undefined ? [] : [change.step];
     if (left.length === 0) return { ...base, installed: true, state: said.inRunner(mode.runner), steps: first };
@@ -173,7 +173,8 @@ export async function runnerStatus(root: string, skip: string[], forced?: Runner
 }
 
 /**
- * The step that changes the runner of a repo in runner mode, or what keeps this run from it.
+ * The step that changes the runner of a repo in runner mode (or, with the runner it has, rewrites
+ * with it what a change cut short left), or what keeps this run from it.
  * Like the move, it takes every tool runner.json pins, so a tool whose piece this run leaves out
  * holds it back.
  * @param from - The repo's runner.
@@ -193,7 +194,7 @@ function changeStep(from: Runner, to: Runner, tools: Record<string, string>, ski
       checked: true,
       // Bun cannot fill its cache ahead; npx's cache only helps the Node runner, and the repo still runs with the old one.
       downloads: [],
-      text: { kind: "runner-change", from, to, tools: names.length === 0 ? [RUNNER_FILE] : names },
+      text: from === to ? { kind: "runner-rewrite", runner: to, tools: names.length === 0 ? [RUNNER_FILE] : names } : { kind: "runner-change", from, to, tools: names.length === 0 ? [RUNNER_FILE] : names },
       run: (context) => changeRunner(context, to),
     },
   };
@@ -306,6 +307,7 @@ async function migrate(context: Context, runner: Runner, warning: string | null,
     ...(skillsManager === undefined ? [] : [[SKILLS_MANAGER_PIECE, async () => (await updateInRunner(context, skillsManager)) && (flow === undefined || moveSkills(context, flow))] as Part]),
     [said.cleanup, () => {
       finishMove(context, true);
+      setPackageManager(context, runner);
       return Promise.resolve(true);
     }],
   ];

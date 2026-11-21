@@ -344,3 +344,19 @@ test("--runner node runs the move with node: runner.json says node and every too
   assert.deepEqual(repo.read(".agents/runner.json").tools, LATEST);
   assert.deepEqual([...new Set(toolLog(repo).map((call) => call.program))], ["npx"]);
 });
+
+test("the move follows --runner in packageManager: gone with node, bun's version with bun, kept with dependencies of its own", () => {
+  const node = legacyRepo();
+  node.write("package.json", { ...node.read("package.json"), packageManager: "bun@1.3.0" });
+  const bun = legacyRepo();
+  const own = legacyRepo({ dependencies: { react: "19.0.0" } });
+  own.write("package.json", { ...own.read("package.json"), packageManager: "bun@1.3.0" });
+
+  assert.equal(node.cli(["apply", "--yes", "--runner", "node"], env()).status, 0);
+  assert.equal(bun.cli(["apply", "--yes", "--runner", "bun"], { env: { ...env().env, FAKE_BUN_VERSION: "1.4.4" } }).status, 0);
+  assert.equal(own.cli(["apply", "--yes", "--runner", "node"], env()).status, 0);
+
+  assert.equal("packageManager" in node.read("package.json"), false);
+  assert.equal(bun.read("package.json").packageManager, "bun@1.4.4");
+  assert.equal(own.read("package.json").packageManager, "bun@1.3.0");
+});
