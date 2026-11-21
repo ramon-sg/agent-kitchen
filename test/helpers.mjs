@@ -161,8 +161,9 @@ export const makeFreshRepo = (options = {}) => makeRepo({ ...options, fresh: tru
 
 // A repo as agent-kitchen leaves it at the given versions: the flow, its skills and the general
 // ones, agent-cloud-kit, claude-repo-guard (with the flow's options) and the rule in AGENTS.md.
-export function installedRepo({ flow = "0.2.0", cloud = "0.9.1", guard = "0.2.0", general = "v0.2.0", tags } = {}) {
-  const repo = makeRepo(tags === undefined ? {} : { tags });
+// With `origin`, the repo also gets a local origin (see makeRepo); these files are not committed.
+export function installedRepo({ flow = "0.2.0", cloud = "0.9.1", guard = "0.2.0", general = "v0.2.0", tags, origin = false } = {}) {
+  const repo = makeRepo({ ...(tags === undefined ? {} : { tags }), origin });
   repo.write("package.json", { devDependencies: { "@ramon-sg/issue-flow": flow, "@ramon-sg/github-rest": "0.2.1", "@ramon-sg/skills-manager": "1.2.0" } });
   repo.write(".agents/flow.json", {});
   repo.write("AGENTS.md", `${RULE}\n`);

@@ -99,6 +99,33 @@ export function pinSessionNotice(root: string, command: string): boolean {
 }
 
 /**
+ * In runner mode, takes skills-manager to a version: runs that version's `install` if the repo
+ * has a manifest (it raises its own entry), pins it in runner.json if it is still missing or
+ * behind, and writes or re-pins the `SessionStart` hook of `session-notice`.
+ * @param context - Where it runs, in runner mode.
+ * @param version - The version.
+ * @returns Whether its install worked.
+ * @throws KitError If the repo has no usable runner.json.
+ */
+export async function updateInRunner(context: Context, version: string): Promise<boolean> {
+  const common = ui.pieces.common;
+  const spec = `${SKILLS_MANAGER}@${version}`;
+  if (readJson(context.root, SKILLS_MANIFEST) !== null) {
+    const run = await runTool(context.root, [spec, "install"]);
+    if (!run.ok) {
+      context.fail(common.failed("skills-manager install", toolText(context.root, [spec, "install"])), run.output);
+      return false;
+    }
+  }
+  raiseTool(context.root, SKILLS_MANAGER, version);
+  context.note(common.inRunner(SKILLS_MANAGER, version));
+  const mode = repoMode(context.root);
+  const command = toolCommandText(mode.kind === "runner" ? mode.runner : "bun", SKILLS_MANAGER, version, ["session-notice"]);
+  if (pinSessionNotice(context.root, command)) context.note(ui.pieces.skillsManager.hookPinned(command));
+  return true;
+}
+
+/**
  * In runner mode, what the repo has of skills-manager and the step that takes it to npm's
  * latest. It applies where the repo uses skills or this run may install them.
  * @param root - The repo, in runner mode.
@@ -120,21 +147,7 @@ async function runnerStatus(root: string, withSkills: boolean): Promise<PieceSta
     checked: true,
     downloads: [spec],
     text: installed === null ? ({ kind: "skills-manager-pin", version: latest } as const) : ({ kind: "skills-manager-update", from: installed, to: latest } as const),
-    run: async (context: Context) => {
-      if (readJson(context.root, SKILLS_MANIFEST) !== null) {
-        const run = await runTool(context.root, [spec, "install"]);
-        if (!run.ok) {
-          context.fail(common.failed("skills-manager install", toolText(context.root, [spec, "install"])), run.output);
-          return false;
-        }
-      }
-      raiseTool(context.root, SKILLS_MANAGER, latest);
-      context.note(common.inRunner(SKILLS_MANAGER, latest));
-      const mode = repoMode(context.root);
-      const command = toolCommandText(mode.kind === "runner" ? mode.runner : "bun", SKILLS_MANAGER, latest, ["session-notice"]);
-      if (pinSessionNotice(context.root, command)) context.note(said.hookPinned(command));
-      return true;
-    },
+    run: (context: Context) => updateInRunner(context, latest),
   };
   return { ...base, state: installed === null ? said.missingInRunner : common.behind(installed, latest), steps: [step] };
 }

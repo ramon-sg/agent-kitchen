@@ -38,7 +38,7 @@ test("both catalogs have the same keys, every kind of step included", () => {
 
 test("in English each step orders, says what it is doing and what is left", () => {
   for (const [kind, render] of Object.entries(en.steps)) {
-    const said = render({ kind, version: "1.0.0", from: "1.0.0", to: "1.1.0", flow: "0.3.0", config: ".claude/cloud.json", missing: ["spike"], count: 2, catalogs: ["a/b"], catalog: "a/b", names: ["x"], rule: true, claudeImport: false, manager: "npm" });
+    const said = render({ kind, version: "1.0.0", from: "1.0.0", to: "1.1.0", flow: "0.3.0", config: ".claude/cloud.json", missing: ["spike"], count: 2, catalogs: ["a/b"], catalog: "a/b", names: ["x"], rule: true, claudeImport: false, manager: "npm", runner: "bun", tools: ["x 1.0.0"] });
     assert.match(said.doing, /^[A-Z][a-z]+ing .+…$/, kind);
     assert.doesNotMatch(said.done, /→|…$/, kind);
     assert.notEqual(said.menu, said.done, kind);

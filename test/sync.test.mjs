@@ -221,9 +221,10 @@ test("--skip leaves pieces out; an unknown piece is a usage error", () => {
 
   assert.equal(r.status, 0, r.err);
   assert.deepEqual(repo.calls().length, 0);
-  assert.doesNotMatch(r.out, /agent-cloud-kit/);
+  // No row of its own; the runner row names it as left out, since moving to runner.json takes every tool.
+  assert.doesNotMatch(r.out, /^ {2}agent-cloud-kit /m);
   assert.equal(unknown.status, 2);
-  assert.match(unknown.err, /no existe la pieza docker; son skills-manager, issue-flow, agent-cloud-kit, claude-repo-guard, skills/);
+  assert.match(unknown.err, /no existe la pieza docker; son runner, skills-manager, issue-flow, agent-cloud-kit, claude-repo-guard, skills/);
 });
 
 test("when npm and GitHub cannot tell the latest, a piece is shown and not updated", () => {

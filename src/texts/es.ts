@@ -14,6 +14,11 @@ const list = (names: string[]): string => names.join(", ");
 /** The texts in Spanish. */
 export const es: Catalog = {
   steps: {
+    "runner-migrate": ({ runner, tools }) => ({
+      menu: `Pasar las herramientas a .agents/runner.json con el ejecutor ${runner}: ${list(tools)}`,
+      doing: `Pasando las herramientas a .agents/runner.json con el ejecutor ${runner}…`,
+      done: `Herramientas en .agents/runner.json con el ejecutor ${runner}: ${list(tools)}`,
+    }),
     "skills-manager-create": ({ version }) => ({
       menu: `Crear package.json con skills-manager ${version}`,
       doing: `Creando package.json con skills-manager ${version}…`,
@@ -275,6 +280,23 @@ de --pr quedan siempre en español.`,
       failed: (what, command) => `${what} falló; corre '${command}'.`,
       doctorFailed: (command) => `no se pudo correr su doctor; corre '${command}'`,
       behindRun: (version, latest) => `${version}, hay ${latest}: corre npx agent-kitchen apply`,
+    },
+    runner: {
+      summary: "las versiones de las herramientas, en .agents/runner.json",
+      inRunner: (runner) => `${runner}, en .agents/runner.json`,
+      ready: "modo viejo; todas tienen versión que lee .agents/runner.json",
+      legacy: "modo viejo",
+      waiting: (missing) => `modo viejo; para pasar a .agents/runner.json falta en npm ${list(missing)}`,
+      notExact: (spec) => `modo viejo; package.json tiene issue-flow ${spec}, no una versión exacta: fíjala para pasar a .agents/runner.json`,
+      leftOut: (pieces) => `modo viejo; pasar a .agents/runner.json lleva todas las herramientas, y esta corrida deja fuera ${list(pieces)}`,
+      movedByRunner: " (va en el paso de runner)",
+      written: (file, runner) => `${file} escrito con el ejecutor ${runner}`,
+      cleaned: (names) => `quitado de package.json: ${list(names)}`,
+      versionRemoved: (file) => `"version" quitado de ${file}`,
+      removed: (paths) => `borrado: ${list(paths)}`,
+      installLater: (manager) => `el repo tiene dependencias propias: '${manager} install' corre al final`,
+      notRun: (names) => `No corrieron: ${list(names)}.`,
+      cleanup: "la limpieza de package.json, node_modules y el lockfile",
     },
     skillsManager: {
       summary: "el CLI de las skills, que corre agent-kitchen",

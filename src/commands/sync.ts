@@ -5,8 +5,9 @@
  * draft (see pr-clone.ts), `--here` in the person's checkout, leaving the changes uncommitted.
  * In a terminal, without either, it asks; with `--yes` or without a terminal, or without an
  * origin, it works here. Here it warns if the checkout has changes or is behind its upstream.
- * Then it looks at each piece (the version of skills-manager, the issue flow, agent-cloud-kit,
- * claude-repo-guard, the skills, the rule in AGENTS.md) with
+ * Then it looks at each piece (the move of a legacy repo to `.agents/runner.json`, the version
+ * of skills-manager, the issue flow, agent-cloud-kit, claude-repo-guard, the skills, the rule in
+ * AGENTS.md) with
  * every lookup at once, shows what the repo has, and offers the steps that install what is
  * missing or update what is behind. In a terminal it asks first, all in one go: everything
  * suggested, or pick the steps and the skills; whether to replace the repo's own skills.
@@ -42,6 +43,7 @@ import { issueFlowStatus, NAME as FLOW } from "../pieces/issue-flow.js";
 import { keepOwn, NAME as SKILLS, ownInPick, skillsStatus } from "../pieces/skills.js";
 import { agentsMdStatus, NAME as AGENTS_MD } from "../pieces/agents-md.js";
 import { NAME as SKILLS_MANAGER, skillsManagerStatus } from "../pieces/skills-manager.js";
+import { MOVED_PIECES, NAME as RUNNER, runnerStatus } from "../pieces/runner.js";
 import { dependencyVersion, mainCheckout, ownDependencies, packageManager, packageText, readJson } from "../repo.js";
 import { download, failedOutput, previewRunner, repoMode, runInstall, setVerbose, toolText } from "../tools.js";
 import { CLOUD_CONFIG, CLOUD_PACKAGE, GUARD_MANIFEST, toolVersion } from "../runner-mode.js";
@@ -65,13 +67,13 @@ export interface SyncOptions {
   pieces: boolean;
 }
 
-/** Every piece, in the order its steps run. */
-const PIECES = [SKILLS_MANAGER, FLOW, CLOUD, GUARD, SKILLS, AGENTS_MD];
+/** Every piece, in the order its steps run: the move to runner.json first, so the rest run after it. */
+const PIECES = [RUNNER, SKILLS_MANAGER, FLOW, CLOUD, GUARD, SKILLS, AGENTS_MD];
 
 /**
  * The names `--skip` takes.
  * @returns The pieces' names.
- * @example pieceNames() // ["skills-manager", "issue-flow", "agent-cloud-kit", "claude-repo-guard", "skills", "agents-md"]
+ * @example pieceNames() // ["runner", "skills-manager", "issue-flow", "agent-cloud-kit", "claude-repo-guard", "skills", "agents-md"]
  */
 export function pieceNames(): string[] {
   return [...PIECES];
@@ -80,7 +82,8 @@ export function pieceNames(): string[] {
 /**
  * Each piece's status, with every lookup at once. skills-manager, the guard's step and the
  * rule in AGENTS.md depend on whether the flow is about to be installed (it writes
- * package.json), so they wait for the flow's status.
+ * package.json), so they wait for the flow's status. While the move to runner.json is offered,
+ * the tools it moves offer no step of their own: it takes each one to its latest.
  * @param root - The repo.
  * @param skip - The pieces left out.
  * @returns The statuses, in the pieces' order.
@@ -93,8 +96,15 @@ async function statusesOf(root: string, skip: string[]): Promise<PieceStatus[]> 
   const skills = skip.includes(SKILLS) ? null : skillsStatus(root, !skip.includes(FLOW));
   const guard = skip.includes(GUARD) ? null : flowComing.then((coming) => guardStatus(root, coming));
   const agentsMd = skip.includes(AGENTS_MD) ? null : flowComing.then((coming) => agentsMdStatus(root, coming));
-  const all = await Promise.all([skillsManager, flow, cloud, guard, skills, agentsMd]);
-  return all.flatMap((status) => status ?? []);
+  const runner = skip.includes(RUNNER) ? null : runnerStatus(root, skip);
+  const [moving, ...rest] = await Promise.all([runner, skillsManager, flow, cloud, guard, skills, agentsMd]);
+  const statuses = [moving, ...rest].flatMap((status) => status ?? []);
+  if (moving === null || moving.steps.length === 0) return statuses;
+  for (const status of statuses.filter((each) => MOVED_PIECES.includes(each.name) && each.steps.length > 0)) {
+    status.steps = [];
+    status.state += ui.pieces.runner.movedByRunner;
+  }
+  return statuses;
 }
 
 /**
@@ -508,10 +518,12 @@ async function applyIn(work: Workplace, options: SyncOptions, out: Output): Prom
     if (!(await runStep(root, step, progress, out))) failedSteps.push(step);
   }
   const failed = failedSteps.map(stepLabel);
+  // A runner.json this run wrote, before the steps (a new repo) or in one (the move), is not committed yet.
+  const runnerNew = wroteRunner || chosen.some((step) => step.piece === RUNNER && !failedSteps.includes(step));
   if (work.kind === "pr") return openPr(work, commitLabels(chosen.filter((step) => !failedSteps.includes(step)), wrote, wroteRunner ? created : null), failed, progress, out);
   const installFailed = packageText(root) !== pkgBefore && needsInstall(root) ? !(await install(root, progress, out)) : false;
   if (installFailed) failed.push(phrases({ kind: "install-deps", manager: packageManager(root) }).menu);
-  show(out, { mood: failed.length === 0 ? "ok" : "error", title: ui.summary(failed), lines: [ui.next(installFailed ? packageManager(root) : null), ...(wroteRunner ? [ui.runnerLeft(RUNNER_FILE)] : [])], ...cloud() }, root);
+  show(out, { mood: failed.length === 0 ? "ok" : "error", title: ui.summary(failed), lines: [ui.next(installFailed ? packageManager(root) : null), ...(runnerNew ? [ui.runnerLeft(RUNNER_FILE)] : [])], ...cloud() }, root);
   return failed.length === 0 ? 0 : 1;
 }
 

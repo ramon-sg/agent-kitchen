@@ -14,6 +14,11 @@ const list = (names: string[]): string => names.join(", ");
 /** The texts in English. */
 export const en: Catalog = {
   steps: {
+    "runner-migrate": ({ runner, tools }) => ({
+      menu: `Move the tools to .agents/runner.json with the ${runner} runner: ${list(tools)}`,
+      doing: `Moving the tools to .agents/runner.json with the ${runner} runner…`,
+      done: `Tools in .agents/runner.json with the ${runner} runner: ${list(tools)}`,
+    }),
     "skills-manager-create": ({ version }) => ({
       menu: `Create package.json with skills-manager ${version}`,
       doing: `Creating package.json with skills-manager ${version}…`,
@@ -275,6 +280,23 @@ and the PR of --pr are always in Spanish.`,
       failed: (what, command) => `${what} failed; run '${command}'.`,
       doctorFailed: (command) => `its doctor could not run; run '${command}'`,
       behindRun: (version, latest) => `${version}, ${latest} is out: run npx agent-kitchen apply`,
+    },
+    runner: {
+      summary: "the tools' versions, in .agents/runner.json",
+      inRunner: (runner) => `${runner}, in .agents/runner.json`,
+      ready: "legacy mode; every tool has a version that reads .agents/runner.json",
+      legacy: "legacy mode",
+      waiting: (missing) => `legacy mode; to move to .agents/runner.json, npm still lacks ${list(missing)}`,
+      notExact: (spec) => `legacy mode; package.json has issue-flow ${spec}, not an exact version: pin it to move to .agents/runner.json`,
+      leftOut: (pieces) => `legacy mode; moving to .agents/runner.json takes every tool, and this run leaves out ${list(pieces)}`,
+      movedByRunner: " (done by the runner step)",
+      written: (file, runner) => `${file} written with the ${runner} runner`,
+      cleaned: (names) => `removed from package.json: ${list(names)}`,
+      versionRemoved: (file) => `"version" removed from ${file}`,
+      removed: (paths) => `deleted: ${list(paths)}`,
+      installLater: (manager) => `the repo has dependencies of its own: '${manager} install' runs at the end`,
+      notRun: (names) => `Did not run: ${list(names)}.`,
+      cleanup: "the cleanup of package.json, node_modules and the lockfile",
     },
     skillsManager: {
       summary: "the skills CLI, which agent-kitchen runs",

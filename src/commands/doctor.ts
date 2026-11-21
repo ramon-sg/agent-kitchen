@@ -9,7 +9,6 @@
  * check failed. A repo with `.agents/runner.json` also gets one line for its runner; one whose
  * runner.json cannot be used ends in the error block.
  */
-import { checkRunner } from "@ramon-sg/runner";
 import { colorOn, paint, show } from "../banner.js";
 import { readDecisions } from "../decisions.js";
 import { type Output, warn } from "../output.js";
@@ -18,6 +17,7 @@ import { agentsMdChecks, NAME as AGENTS_MD } from "../pieces/agents-md.js";
 import { cloudChecks, NAME as CLOUD } from "../pieces/cloud.js";
 import { guardChecks, NAME as GUARD } from "../pieces/guard.js";
 import { issueFlowChecks, NAME as FLOW } from "../pieces/issue-flow.js";
+import { runnerChecks } from "../pieces/runner.js";
 import { NAME as SKILLS, skillsChecks } from "../pieces/skills.js";
 import { skillsManagerChecks } from "../pieces/skills-manager.js";
 import { mainCheckout } from "../repo.js";
@@ -37,15 +37,13 @@ const MARKS: Record<Check["status"], [mark: string, color: number]> = { ok: ["âœ
  */
 export async function doctor(cwd: string, out: Output): Promise<number> {
   const root = mainCheckout(cwd, "agent-kitchen doctor");
-  const runnerMode = repoMode(root).kind === "runner";
+  repoMode(root); // an unusable runner.json stops here, before any tool runs
   const saved = readDecisions(root);
   for (const warning of saved?.warnings ?? []) warn(out, warning);
   /** The checks of a piece, or a note if the repo left it out. */
   const unless = (name: string, run: () => Promise<Check[]>): Promise<Check[]> =>
     saved?.pieces[name] === false ? Promise.resolve([{ name, status: "info", detail: ui.status.offByRepo }]) : run();
-  // The library's "warn" is a note here.
-  const runnerChecks: Check[] = runnerMode ? checkRunner(root).map(({ name, status, detail }) => ({ name, status: status === "warn" ? "info" : status, detail })) : [];
-  const checks = [...runnerChecks, ...(await Promise.all([skillsManagerChecks(root), unless(FLOW, () => issueFlowChecks(root)), unless(SKILLS, () => skillsChecks(root)), unless(CLOUD, () => cloudChecks(root)), unless(GUARD, () => guardChecks(root)), unless(AGENTS_MD, () => agentsMdChecks(root))])).flat()];
+  const checks = [...runnerChecks(root), ...(await Promise.all([skillsManagerChecks(root), unless(FLOW, () => issueFlowChecks(root)), unless(SKILLS, () => skillsChecks(root)), unless(CLOUD, () => cloudChecks(root)), unless(GUARD, () => guardChecks(root)), unless(AGENTS_MD, () => agentsMdChecks(root))])).flat()];
   const color = colorOn(out, "stdout");
   for (const check of checks) {
     const [mark, code] = MARKS[check.status];

@@ -20,8 +20,9 @@
 //    rest), and moves that skill in the lock to its catalog's ref, or to FAKE_UPDATE_TAG.
 //  - Like the real ones, issue-flow from 0.5.0 and claude-repo-guard from 0.7.0 refuse to run
 //    when their language variable is set to something other than es or en.
-//  - github-rest pr create prints a PR's URL. Each call logs GH_REPO too, and the language
-//    variables of claude-repo-guard and issue-flow (null when unset or empty).
+//  - github-rest pr create prints a PR's URL. Each call logs GH_REPO too, the language
+//    variables of claude-repo-guard and issue-flow (null when unset or empty), and whether the
+//    folder had `.agents/runner.json` when it was called.
 //  - npm install and pnpm install write their lockfile, or exit 1 if FAKE_FAIL is "install".
 //  - From the first version that reads `.agents/runner.json` (issue-flow 0.6.0, skills-manager
 //    1.5.0, claude-repo-guard 0.8.0 on npm, agent-cloud-kit 1.0.0), each one writes its entry
@@ -50,7 +51,7 @@ if (logArgs.length === 1 && logArgs[0] === "--version") {
   process.stdout.write("0.0.0\n");
   process.exit(0);
 }
-appendFileSync(process.env.FAKE_LOG, `${JSON.stringify({ program, args: logArgs, cwd: process.cwd(), ghRepo: process.env.GH_REPO ?? null, guardLang: process.env.CLAUDE_REPO_GUARD_LANG || null, flowLang: process.env.ISSUE_FLOW_LANG || null })}\n`);
+appendFileSync(process.env.FAKE_LOG, `${JSON.stringify({ program, args: logArgs, cwd: process.cwd(), ghRepo: process.env.GH_REPO ?? null, guardLang: process.env.CLAUDE_REPO_GUARD_LANG || null, flowLang: process.env.ISSUE_FLOW_LANG || null, runnerFile: existsSync(join(process.cwd(), ".agents", "runner.json")) })}\n`);
 // From here on bunx is npx: its `--bun` stands where npx's `--yes` does.
 const args = program === "bunx" && logArgs[0] === "--bun" ? ["--yes", ...logArgs.slice(1)] : logArgs;
 

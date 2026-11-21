@@ -190,6 +190,38 @@ export interface Catalog {
   /** What the pieces say. */
   pieces: {
     common: PieceTexts;
+    /** The move of a legacy repo to `.agents/runner.json`. */
+    runner: {
+      summary: string;
+      /** A repo in runner mode, with its runner. */
+      inRunner: (runner: string) => string;
+      /** A legacy repo whose tools can all move. */
+      ready: string;
+      /** A legacy repo, when npm does not answer. */
+      legacy: string;
+      /** A legacy repo that cannot move yet: the tools whose minimum npm lacks, as "<package> <minimum>". */
+      waiting: (missing: string[]) => string;
+      /** A legacy repo whose issue-flow in package.json is not an exact version. */
+      notExact: (spec: string) => string;
+      /** A legacy repo that cannot move in this run: the installed tools' pieces it leaves out. */
+      leftOut: (pieces: string[]) => string;
+      /** Added to the state of a tool whose steps the move takes over. */
+      movedByRunner: string;
+      /** The file written, with its runner. */
+      written: (file: string, runner: string) => string;
+      /** Entries removed from package.json. */
+      cleaned: (names: string[]) => string;
+      /** The `version` key removed from a file. */
+      versionRemoved: (file: string) => string;
+      /** Files and folders deleted. */
+      removed: (paths: string[]) => string;
+      /** The repo keeps dependencies of its own: its manager's install runs at the end. */
+      installLater: (manager: string) => string;
+      /** What did not run after a part of the move failed. */
+      notRun: (names: string[]) => string;
+      /** The cleanup, among what did not run. */
+      cleanup: string;
+    };
     skillsManager: {
       summary: string;
       noPackage: string;

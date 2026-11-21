@@ -1,0 +1,184 @@
+// Moving a legacy repo (its tools in devDependencies, `.claude/cloud.json` and the guard's
+// manifest, no `.agents/runner.json`) to runner.json: one step, `runner`, offered only when the
+// latest version of every installed tool already reads runner.json. It writes runner.json first,
+// then runs each tool at its latest in a fixed order (issue-flow, claude-repo-guard,
+// agent-cloud-kit, skills-manager), and cleans up what the tools leave: skills-manager in
+// devDependencies, the `version` of cloud.json, and node_modules and the lockfile when the repo
+// has no dependencies of its own (with some, the install of its manager runs instead).
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { test } from "node:test";
+import { installedRepo } from "./helpers.mjs";
+
+// Every tool at (or past) its first version that reads runner.json, and github-rest 0.7.0.
+const LATEST = {
+  "@ramon-sg/issue-flow": "0.6.0",
+  "@ramon-sg/github-rest": "0.7.0",
+  "@ramon-sg/skills-manager": "1.5.1",
+  "@ramon-sg/claude-repo-guard": "0.8.0",
+  "agent-cloud-kit": "1.0.0",
+};
+
+// The guard's tags on GitHub: the repo is at the newest below v0.8.0, so legacy mode offers nothing for it.
+const TAGS = { "ramon-sg/claude-repo-guard": ["0.7.0"], "ramon-sg/agent-skills": ["0.2.0"] };
+
+// A legacy repo with every tool, at versions below their minimums, with what a legacy install leaves:
+// a lockfile, node_modules, and a script that runs skills-manager from them.
+function legacyRepo({ lock = "package-lock.json", dependencies, origin = false } = {}) {
+  const repo = installedRepo({ flow: "0.5.1", cloud: "0.9.1", guard: "0.7.0", tags: TAGS, origin });
+  repo.write("package.json", {
+    scripts: { skills: "npx skills-manager update", test: "node --test" },
+    ...(dependencies === undefined ? {} : { dependencies }),
+    devDependencies: { "@ramon-sg/issue-flow": "0.5.1", "@ramon-sg/github-rest": "0.2.1", "@ramon-sg/skills-manager": "1.2.0" },
+  });
+  repo.write(lock, "lock\n");
+  repo.write("node_modules/@ramon-sg/skills-manager/package.json", { version: "1.2.0" });
+  return repo;
+}
+
+const env = (latest = LATEST) => ({ env: { FAKE_NPM: JSON.stringify(latest) } });
+
+// The tool calls of the last run, as text, with whether runner.json existed when each one ran.
+const toolLog = (repo) => repo.log().filter((call) => ["npx", "bunx"].includes(call.program) && call.args[1] !== "--package").map((call) => ({ program: call.program, text: call.args.slice(1).join(" "), runnerFile: call.runnerFile }));
+
+test("a legacy repo whose tools all have a release that reads runner.json is offered the move, and --dry-run writes nothing", () => {
+  const repo = legacyRepo();
+
+  const r = repo.cli(["apply", "--dry-run"], env());
+
+  assert.equal(r.status, 0, r.err);
+  assert.match(r.out, /\n {2}runner +/);
+  assert.match(r.out, /\[x\] Pasar las herramientas a \.agents\/runner\.json con el ejecutor bun: issue-flow 0\.6\.0, claude-repo-guard 0\.8\.0, agent-cloud-kit 1\.0\.0, skills-manager 1\.5\.1/);
+  // While the move is offered, no tool gets a legacy step of its own.
+  assert.doesNotMatch(r.out, /\[.\] (Actualizar|Instalar|Reparar|Subir|Agregar|Fijar) (issue-flow|claude-repo-guard|agent-cloud-kit|skills-manager|github-rest)/);
+  assert.equal(repo.exists(".agents/runner.json"), false);
+  assert.ok(repo.exists("package-lock.json"));
+  assert.equal(repo.read(".claude/cloud.json").version, "0.9.1");
+});
+
+test("apply --yes moves a legacy repo to runner.json: five versions there, no ecosystem devDependencies, no cloud.json version, no lockfile or node_modules", () => {
+  const repo = legacyRepo();
+
+  const r = repo.cli(["apply", "--yes"], env());
+
+  assert.equal(r.status, 0, `${r.out}\n${r.err}`);
+  assert.deepEqual(repo.read(".agents/runner.json").tools, LATEST);
+  assert.equal(repo.read(".agents/runner.json").runner, "bun");
+  const pkg = repo.read("package.json");
+  assert.equal(pkg.devDependencies, undefined, JSON.stringify(pkg));
+  assert.equal(pkg.scripts.skills, undefined, "the script that ran skills-manager from node_modules is gone");
+  assert.equal(pkg.scripts.test, "node --test", "the repo's own scripts stay");
+  assert.ok(repo.exists(".claude/cloud.json"));
+  assert.equal("version" in repo.read(".claude/cloud.json"), false);
+  assert.ok(repo.exists(".claude/repo-guard.manifest.json"), "the guard's manifest stays: its uninstall reads it");
+  assert.equal(repo.exists("package-lock.json"), false);
+  assert.equal(repo.exists("node_modules"), false);
+  assert.deepEqual(repo.npmCalls().filter((args) => args[0] === "install"), []);
+  const hooks = repo.read(".claude/settings.json").hooks.SessionStart.flatMap((group) => group.hooks.map((hook) => hook.command));
+  assert.ok(hooks.includes("bunx --bun @ramon-sg/skills-manager@1.5.1 session-notice"), hooks.join("\n"));
+  assert.match(r.out, /\.agents\/runner\.json/);
+});
+
+test("with dependencies of its own and a pnpm lockfile, the move runs pnpm install and keeps them and the lockfile", () => {
+  const repo = legacyRepo({ lock: "pnpm-lock.yaml", dependencies: { react: "19.0.0" } });
+
+  const r = repo.cli(["apply", "--yes"], env());
+
+  assert.equal(r.status, 0, `${r.out}\n${r.err}`);
+  assert.deepEqual(repo.read("package.json").dependencies, { react: "19.0.0" });
+  assert.equal(repo.read("package.json").devDependencies, undefined);
+  assert.ok(repo.exists("pnpm-lock.yaml"));
+  assert.equal(repo.log().filter((call) => call.program === "pnpm" && call.args[0] === "install").length, 1);
+  assert.deepEqual(repo.read(".agents/runner.json").tools, LATEST);
+});
+
+test("with no skills-manager on npm at or above 1.5.0 there is no move: the table names it and its minimum, and nothing changes", () => {
+  const repo = legacyRepo();
+  const files = ["package.json", ".claude/cloud.json", ".claude/repo-guard.manifest.json", "package-lock.json"];
+  const before = files.map((file) => readFileSync(join(repo.main, file), "utf8"));
+
+  const r = repo.cli(["apply", "--yes"], env({ ...LATEST, "@ramon-sg/skills-manager": "1.4.0" }));
+
+  assert.equal(r.status, 0, `${r.out}\n${r.err}`);
+  assert.doesNotMatch(r.out, /Pasar las herramientas/);
+  assert.match(r.out, /\n {2}runner +[^\n]*@ramon-sg\/skills-manager 1\.5\.0/);
+  assert.equal(repo.exists(".agents/runner.json"), false);
+  assert.deepEqual(files.map((file) => readFileSync(join(repo.main, file), "utf8")), before);
+  assert.ok(repo.exists("node_modules"));
+  assert.ok(toolLog(repo).every((call) => call.program === "npx" && !call.runnerFile), JSON.stringify(toolLog(repo)));
+});
+
+test("a tool left out of the run (--skip, or false in kitchen.json) holds the move back: the table says so, and nothing moves", () => {
+  const skipped = legacyRepo();
+  const decided = legacyRepo();
+  decided.write(".agents/kitchen.json", { pieces: { "claude-repo-guard": false } });
+
+  const a = skipped.cli(["apply", "--yes", "--skip", "claude-repo-guard"], env());
+  const b = decided.cli(["apply", "--yes"], env());
+
+  for (const [repo, r] of [[skipped, a], [decided, b]]) {
+    assert.equal(r.status, 0, `${r.out}\n${r.err}`);
+    assert.doesNotMatch(r.out, /Pasar las herramientas/);
+    assert.match(r.out, /\n {2}runner +[^\n]*deja fuera claude-repo-guard/);
+    assert.equal(repo.exists(".agents/runner.json"), false);
+    assert.ok(toolLog(repo).every((call) => call.program === "npx"), JSON.stringify(toolLog(repo)));
+  }
+});
+
+test("the move writes runner.json before any tool runs, then runs issue-flow, the guard, agent-cloud-kit and skills-manager, in that order, with bunx", () => {
+  const repo = legacyRepo();
+
+  const r = repo.cli(["apply", "--yes"], env());
+
+  assert.equal(r.status, 0, `${r.out}\n${r.err}`);
+  const calls = toolLog(repo);
+  const first = calls.findIndex((call) => call.runnerFile);
+  assert.ok(first >= 0, JSON.stringify(calls));
+  assert.ok(calls.slice(first).every((call) => call.runnerFile && call.program === "bunx"), JSON.stringify(calls));
+  assert.equal(calls[first].text, "@ramon-sg/issue-flow@0.6.0 apply --yes --json");
+  const order = ["@ramon-sg/issue-flow@0.6.0 apply --yes --json", "@ramon-sg/claude-repo-guard@0.8.0 apply --yes", "agent-cloud-kit@1.0.0 init", "@ramon-sg/skills-manager@1.5.1 install"].map((text) => calls.findIndex((call) => call.text === text));
+  assert.ok(order.every((index) => index >= first), `${order} in ${JSON.stringify(calls)}`);
+  assert.deepEqual([...order].sort((a, b) => a - b), order);
+  assert.ok(repo.allCalls().every((args) => !args[0].startsWith("github:ramon-sg/claude-repo-guard") || !args.includes("apply")), "the guard no longer runs from GitHub");
+  // The flow's skills follow it to its new tag.
+  assert.equal(repo.read(".agents/skills.lock.json").skills["close-pr"].tag, "v0.6.0");
+  assert.ok(repo.exists(".claude/cloud.json"));
+  assert.equal("version" in repo.read(".claude/cloud.json"), false);
+  assert.ok(repo.exists(".claude/repo-guard.manifest.json"));
+});
+
+test("a tool that fails stops the move: the next ones do not run, and the output says which failed and which did not run", () => {
+  const repo = legacyRepo();
+
+  const r = repo.cli(["apply", "--yes"], { env: { FAKE_NPM: JSON.stringify(LATEST), FAKE_FAIL: "claude-repo-guard@0.8.0 apply" } });
+
+  assert.equal(r.status, 1, r.out);
+  const calls = toolLog(repo).map((call) => call.text);
+  assert.ok(calls.includes("@ramon-sg/issue-flow@0.6.0 apply --yes --json"), calls.join("\n"));
+  assert.ok(!calls.some((call) => call.startsWith("agent-cloud-kit@1.0.0 init") || call.startsWith("@ramon-sg/skills-manager@1.5.1 install")), calls.join("\n"));
+  assert.match(r.err, /claude-repo-guard no se instaló/);
+  assert.match(r.out, /No corrieron: agent-cloud-kit, skills-manager/);
+  assert.match(r.out, /fallaron: Pasar las herramientas a \.agents\/runner\.json/);
+  // Nothing is undone, and the cleanup did not run either.
+  assert.ok(repo.exists(".agents/runner.json"));
+  assert.ok(repo.exists("package-lock.json"));
+  assert.equal(repo.read(".claude/cloud.json").version, "0.9.1");
+});
+
+test("--pr commits runner.json, package.json and the deleted lockfile", () => {
+  const repo = legacyRepo({ origin: true });
+  repo.git("add", "-A");
+  repo.git("commit", "-q", "-m", "tools");
+  repo.git("push", "-q", "origin", "main");
+
+  const r = repo.cli(["apply", "--yes", "--pr"], env());
+
+  assert.equal(r.status, 0, `${r.out}\n${r.err}`);
+  const branch = repo.git("ls-remote", "--heads", "origin").split("\n").map((line) => line.split("refs/heads/")[1]).find((name) => name !== "main");
+  const files = repo.git("show", "--name-only", "--format=", `origin/${branch}`).split("\n");
+  for (const file of [".agents/runner.json", "package.json", "package-lock.json", ".claude/cloud.json"]) assert.ok(files.includes(file), `${file} in ${files.join(", ")}`);
+  assert.match(repo.git("show", "--name-status", "--format=", `origin/${branch}`), /D\tpackage-lock\.json/);
+  assert.match(repo.git("log", "-1", "--format=%B", `origin/${branch}`), /- Pasar las herramientas a \.agents\/runner\.json con el ejecutor bun/);
+  assert.equal(repo.exists(".agents/runner.json"), false, "the checkout is left as it was");
+});

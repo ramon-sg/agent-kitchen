@@ -117,7 +117,7 @@ function skillsOff(root: string, version: string): string[] {
  * @param version - The flow's version.
  * @returns Whether it worked, or true if the repo has none of the flow's skills.
  */
-async function moveSkills(context: Context, version: string): Promise<boolean> {
+export async function moveSkills(context: Context, version: string): Promise<boolean> {
   if (!pinCatalog(context.root, FLOW_CATALOG, `v${version}`)) return true;
   const names = catalogSkills(context.root, FLOW_CATALOG).map((skill) => skill.name);
   const failed = await updateSkills(context.root, names);
@@ -150,7 +150,7 @@ async function runFlow(context: Context, version: string, args: string[]): Promi
  * @param version - The version, 0.3.0 or later.
  * @returns Whether it worked.
  */
-async function applyFlow(context: Context, version: string): Promise<boolean> {
+export async function applyFlow(context: Context, version: string): Promise<boolean> {
   const retry = toolText(context.root, [`${FLOW_PACKAGE}@${version}`, "apply", "--yes"]);
   const result = await captureTool(context.root, [`${FLOW_PACKAGE}@${version}`, "apply", "--yes", "--json"], false, { [LANG_VAR]: currentLang() });
   const output = `${result?.out ?? ""}${result?.err ?? ""}`;

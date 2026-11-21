@@ -119,7 +119,7 @@ export function guardOptions(root: string, platform: string): { options: Record<
  * @param version - The version, or null for the default branch.
  * @returns Whether it installed.
  */
-async function install(context: Context, version: string | null): Promise<boolean> {
+export async function install(context: Context, version: string | null): Promise<boolean> {
   const { options, changes } = guardOptions(context.root, process.platform);
   if (changes.length > 0) writeJson(context.root, CONFIG, options);
   for (const change of changes) context.note(change);

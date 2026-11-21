@@ -135,6 +135,47 @@ export function packageManager(root: string): string {
 }
 
 /**
+ * The lockfiles the repo has, of any package manager.
+ * @param root - The repo.
+ * @returns Their names, relative to the repo.
+ * @example lockfiles(root) // ["package-lock.json"]
+ */
+export function lockfiles(root: string): string[] {
+  return LOCKFILES.map(([file]) => file).filter((file) => existsSync(join(root, file)));
+}
+
+/**
+ * Changes package.json and writes it back as it was written: same indentation, line endings
+ * and final newline. Nothing is written if the change leaves it equal.
+ * @param root - The repo.
+ * @param edit - Changes the parsed file in place.
+ * @returns Whether the file changed; false without package.json.
+ * @example editPackage(root, (pkg) => delete pkg.devDependencies) // true
+ */
+export function editPackage(root: string, edit: (pkg: Record<string, unknown>) => void): boolean {
+  const pkg = readJson(root, "package.json");
+  if (pkg === null) return false;
+  const before = JSON.stringify(pkg);
+  edit(pkg);
+  if (JSON.stringify(pkg) === before) return false;
+  writePackage(root, pkg);
+  return true;
+}
+
+/**
+ * Writes package.json with the indentation, line endings and final newline its text has now.
+ * @param root - The repo.
+ * @param pkg - The new content.
+ */
+function writePackage(root: string, pkg: Record<string, unknown>): void {
+  const text = readFileSync(join(root, "package.json"), "utf8");
+  const indent = /^([ \t]+)"/m.exec(text)?.[1] ?? "  ";
+  const eol = text.includes("\r\n") ? "\r\n" : "\n";
+  const json = JSON.stringify(pkg, null, indent).replace(/\n/g, eol);
+  writeFileSync(join(root, "package.json"), /\r?\n$/.test(text) || text === "" ? `${json}${eol}` : json);
+}
+
+/**
  * The text of the repo's package.json, to tell later whether a run changed it.
  * @param root - The repo.
  * @returns Its text, or null if there is none.
@@ -177,9 +218,6 @@ export function installedVersion(root: string, name: string): string | null {
 export function setDependency(root: string, name: string, version: string): void {
   const pkg = readJson(root, "package.json");
   if (pkg === null) throw new KitError(ui.repo.noPackage);
-  const text = readFileSync(join(root, "package.json"), "utf8");
-  const indent = /^([ \t]+)"/m.exec(text)?.[1] ?? "  ";
-  const eol = text.includes("\r\n") ? "\r\n" : "\n";
   const [deps, dev] = [pkg.dependencies, pkg.devDependencies];
   if (isObject(dev) && typeof dev[name] === "string") dev[name] = version;
   else if (isObject(deps) && typeof deps[name] === "string") deps[name] = version;
@@ -189,6 +227,5 @@ export function setDependency(root: string, name: string, version: string): void
     entries.splice(at === -1 ? entries.length : at, 0, [name, version]);
     pkg.devDependencies = Object.fromEntries(entries);
   }
-  const json = JSON.stringify(pkg, null, indent).replace(/\n/g, eol);
-  writeFileSync(join(root, "package.json"), /\r?\n$/.test(text) || text === "" ? `${json}${eol}` : json);
+  writePackage(root, pkg);
 }

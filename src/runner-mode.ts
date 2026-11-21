@@ -102,6 +102,16 @@ export async function legacyLatest(pkg: string): Promise<string | null> {
  * @example await offeredVersion(root, "agent-cloud-kit") // "1.0.0"
  */
 export function offeredVersion(root: string, pkg: string): Promise<string | null> {
-  if (repoMode(root).kind === "legacy") return legacyLatest(pkg);
+  return repoMode(root).kind === "legacy" ? legacyLatest(pkg) : runnerLatest(pkg);
+}
+
+/**
+ * The version of a tool a repo in runner mode goes to: npm's latest (agent-cloud-kit's even if
+ * it is a prerelease, as its pin always took; the guard's from npm, not GitHub).
+ * @param pkg - The tool's package.
+ * @returns The version, or null if the registry cannot tell.
+ * @example await runnerLatest("@ramon-sg/skills-manager") // "1.5.1"
+ */
+export function runnerLatest(pkg: string): Promise<string | null> {
   return pkg === CLOUD_PACKAGE ? npmLatestExact(pkg) : npmLatest(pkg);
 }

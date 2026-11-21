@@ -31,7 +31,7 @@ const CONFIG = CLOUD_CONFIG;
  * @param version - The version.
  * @returns Whether it worked.
  */
-async function init(context: Context, version: string): Promise<boolean> {
+export async function init(context: Context, version: string): Promise<boolean> {
   const spec = `${PACKAGE}@${version}`;
   const run = await runTool(context.root, [spec, "init"]);
   if (run.ok) return true;
@@ -46,7 +46,7 @@ async function init(context: Context, version: string): Promise<boolean> {
  * @param version - The new version.
  * @param pin - Whether to write `version` (legacy mode).
  */
-function moveConfig(root: string, version: string, pin: boolean): void {
+export function moveConfig(root: string, version: string, pin: boolean): void {
   const current = readJson(root, CONFIG);
   if (current === null && !pin) return;
   const config = current ?? {};
