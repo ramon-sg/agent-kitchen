@@ -9,7 +9,8 @@ import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { dependencyVersion, installedVersion, isObject, readJson, writeJson } from "./repo.js";
 import { SKILLS_LOCK, SKILLS_MANAGER, SKILLS_MANIFEST } from "./piece.js";
-import { isRelease, runTool, toolText, type ToolRun } from "./tools.js";
+import { RUNNER_MINIMUMS } from "./runner-mode.js";
+import { isRelease, repoMode, runTool, toolText, type ToolRun } from "./tools.js";
 
 /** Where `skills-manager` puts the skills when the manifest does not say. */
 const SKILLS_DIR = ".agents/skills";
@@ -118,15 +119,18 @@ export function pinCatalog(root: string, catalog: string, tag: string): boolean 
 }
 
 /**
- * The `skills-manager` to run, so the lock is written by the same version every time: the
- * exact version package.json pins (the one its install leaves, even before it runs), else
- * the one in node_modules, else the range package.json has (npx cannot take `workspace:`),
- * else the latest 1.x.
+ * The `skills-manager` to run, so the lock is written by the same version every time. In
+ * runner mode, the one `.agents/runner.json` pins, else its first version that reads that
+ * file. In a legacy repo, the exact version package.json pins (the one its install leaves,
+ * even before it runs), else the one in node_modules, else the range package.json has (npx
+ * cannot take `workspace:`), else the latest 1.x.
  * @param root - The repo.
- * @returns The npx spec.
+ * @returns The spec.
  * @example skillsManagerSpec(root) // "@ramon-sg/skills-manager@1.2.0"
  */
 export function skillsManagerSpec(root: string): string {
+  const mode = repoMode(root);
+  if (mode.kind === "runner") return `${SKILLS_MANAGER}@${mode.tools[SKILLS_MANAGER] ?? RUNNER_MINIMUMS[SKILLS_MANAGER]}`;
   const pinned = dependencyVersion(readJson(root, "package.json"), SKILLS_MANAGER);
   if (pinned !== null && isRelease(pinned)) return `${SKILLS_MANAGER}@${pinned}`;
   const range = pinned === null || pinned.startsWith("workspace:") ? null : pinned;

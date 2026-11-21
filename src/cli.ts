@@ -14,11 +14,10 @@ import { doctor } from "./commands/doctor.js";
 import { pieceNames, sync } from "./commands/sync.js";
 import { langFlag, LangError, resolveLang } from "./lang.js";
 import { KitError, type Output, processOutput, UsageError } from "./output.js";
-import { FLOW_PACKAGE, GENERAL_CATALOGS } from "./piece.js";
-import { PACKAGE as CLOUD_PACKAGE } from "./pieces/cloud.js";
-import { REPO as GUARD_REPO } from "./pieces/guard.js";
+import { FLOW_PACKAGE, GENERAL_CATALOGS, SKILLS_MANAGER } from "./piece.js";
+import { CLOUD_PACKAGE, GITHUB_REST, GUARD_PACKAGE, offeredVersion } from "./runner-mode.js";
 import { ui, useLang } from "./texts/index.js";
-import { compareVersions, isRelease, latestTag, npmLatest, npmLatestExact } from "./tools.js";
+import { compareVersions, isRelease, latestTag, npmLatest, repoMode } from "./tools.js";
 
 /** This package on npm. */
 const PACKAGE = "agent-kitchen";
@@ -36,12 +35,19 @@ function ownVersion(): string {
 }
 
 /**
- * Starts the lookups of the latest versions, so they run while this one checks its own.
+ * Starts the lookups of the versions the pieces may go to, so they run while this one checks
+ * its own: from npm in runner mode, below each tool's ceiling in a legacy repo (the guard's
+ * from GitHub). A runner.json that cannot be read is left for the command to report.
  */
 function startLookups(): void {
-  void npmLatest(FLOW_PACKAGE);
-  void npmLatestExact(CLOUD_PACKAGE);
-  void latestTag(GUARD_REPO);
+  const root = repoTop() ?? process.cwd();
+  let runner = false;
+  try {
+    runner = repoMode(root).kind === "runner";
+  } catch {
+    return;
+  }
+  for (const pkg of [FLOW_PACKAGE, CLOUD_PACKAGE, GUARD_PACKAGE, ...(runner ? [SKILLS_MANAGER, GITHUB_REST] : [])]) void offeredVersion(root, pkg).catch(() => null);
   for (const catalog of GENERAL_CATALOGS) void latestTag(catalog);
 }
 

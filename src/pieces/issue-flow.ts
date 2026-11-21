@@ -1,6 +1,8 @@
 /**
  * @file The issue flow (`@ramon-sg/issue-flow`): its CLI, hooks and config, and its skills.
- * The repo's version is the one in package.json. From 0.3.0, installing and updating run its
+ * The repo's version is the one `.agents/runner.json` pins, or, in a legacy repo, the one in
+ * package.json; a legacy repo is only offered versions below 0.6.0, the first that reads
+ * runner.json (runner-mode.ts). From 0.3.0, installing and updating run its
  * `apply` at the latest version, and reading its `--json` tells what it kept as it was; at
  * the repo's version, `apply` also repairs hooks or a `$schema` its doctor finds behind (a
  * version raised by hand or by Dependabot). Before 0.3.0, installing runs `init` and
@@ -10,6 +12,8 @@
  * update, when GitHub lacks some of the labels the flow expects. From 0.3.0, whose `apply`
  * keeps the repo's github-rest, it also raises an exact github-rest below the floor of the
  * range that version of the flow declares on npm, as the flow itself reads it.
+ * In runner mode, after each `apply`, the repo's github-rest in runner.json rises to the
+ * newer of the one that version of the flow carries (`--version --json`) and npm's latest.
  * `apply` and `init` run with `--yes`: the person answered agent-kitchen's questions before
  * the steps.
  */
@@ -18,7 +22,8 @@ import { dependencyVersion, isObject, readJson, setDependency } from "../repo.js
 import { catalogSkills, manifestCatalogs, pinCatalog, updateSkills } from "../skills-files.js";
 import type { Lang } from "../lang.js";
 import { currentLang, ui } from "../texts/index.js";
-import { captureTool, compareVersions, isRelease, npmDependencies, npmLatest, runTool, toolText } from "../tools.js";
+import { GITHUB_REST, offeredVersion, toolVersion } from "../runner-mode.js";
+import { captureTool, compareSemver, compareVersions, isExactVersion, isRelease, npmDependencies, npmLatest, raiseTool, repoMode, runTool, toolText } from "../tools.js";
 
 /** The piece's name, as `--skip` takes it. */
 export const NAME = "issue-flow";
@@ -40,9 +45,6 @@ const LABELS_SINCE = "0.2.6";
 /** The first version whose `apply` installs, updates and repairs, instead of `init` and `upgrade`. */
 const APPLY_SINCE = "0.3.0";
 
-/** The client of GitHub's REST API that the flow's skills call. */
-const GITHUB_REST = "@ramon-sg/github-rest";
-
 /** One check of the flow's `doctor --json`. */
 interface FlowCheck {
   name?: unknown;
@@ -60,13 +62,15 @@ function usesApply(version: string): boolean {
 }
 
 /**
- * The issue flow's version in the repo, as package.json has it: an exact release when the
- * flow set it up, or anything else (a range, a `file:` link) someone wrote by hand.
+ * The issue flow's version in the repo: the one `.agents/runner.json` pins, or, in a legacy
+ * repo, the one in package.json: an exact release when the flow set it up, or anything else
+ * (a range, a `file:` link) someone wrote by hand.
  * @param root - The repo.
- * @returns The version in package.json, or null.
- * @example flowVersion(root) // "0.2.0"
+ * @returns The version, or null.
+ * @example flowSpec(root) // "0.2.0"
  */
 export function flowSpec(root: string): string | null {
+  if (repoMode(root).kind === "runner") return toolVersion(root, FLOW_PACKAGE);
   return dependencyVersion(readJson(root, "package.json"), FLOW_PACKAGE);
 }
 
@@ -153,6 +157,30 @@ async function applyFlow(context: Context, version: string): Promise<boolean> {
     return false;
   }
   for (const line of report.kept) context.note(String(line));
+  return repoMode(context.root).kind === "runner" ? raiseRest(context, version) : true;
+}
+
+/**
+ * In runner mode, raises github-rest in runner.json to the newer of the one a version of the
+ * flow carries (its `--version --json`) and npm's latest; never lowers it. What neither
+ * tells is left as the flow's `apply` wrote it.
+ * @param context - Where it runs.
+ * @param version - The flow's version that just ran.
+ * @returns True: a version that cannot be read is not a failure.
+ */
+async function raiseRest(context: Context, version: string): Promise<boolean> {
+  const said = await captureTool(context.root, [`${FLOW_PACKAGE}@${version}`, "--version", "--json"], true, { [LANG_VAR]: currentLang() });
+  let carried: unknown;
+  try {
+    carried = (JSON.parse(said?.out ?? "") as { githubRest?: unknown }).githubRest;
+  } catch {
+    carried = undefined;
+  }
+  const known = [typeof carried === "string" ? carried : null, await npmLatest(GITHUB_REST)].filter((each): each is string => each !== null && isExactVersion(each));
+  const target = known.sort(compareSemver).at(-1);
+  if (target === undefined) return true;
+  const current = toolVersion(context.root, GITHUB_REST);
+  if ((current === null || compareSemver(current, target) < 0) && raiseTool(context.root, GITHUB_REST, target)) context.note(ui.pieces.common.inRunner(GITHUB_REST, target));
   return true;
 }
 
@@ -306,10 +334,11 @@ export async function issueFlowStatus(root: string): Promise<PieceStatus> {
   const spec = flowSpec(root);
   if (spec !== null && !isRelease(spec)) return { name: NAME, summary, installed: true, state: said.notExactKept(spec), steps: [] };
   const installed = flowVersion(root);
-  const latest = await npmLatest(FLOW_PACKAGE);
+  const latest = await offeredVersion(root, FLOW_PACKAGE);
   const behind = installed !== null && latest !== null && compareVersions(latest, installed) > 0;
   const target = installed === null || behind ? latest : installed;
-  const [missing, checks, minimum] = await Promise.all([target === null ? [] : missingLabels(root, target), installed !== null && !behind && usesApply(installed) ? flowDoctor(root, installed, "en", true) : null, target === null ? null : restMinimum(target)]);
+  const legacy = repoMode(root).kind === "legacy";
+  const [missing, checks, minimum] = await Promise.all([target === null ? [] : missingLabels(root, target), installed !== null && !behind && usesApply(installed) ? flowDoctor(root, installed, "en", true) : null, target === null || !legacy ? null : restMinimum(target)]);
   const step = stepFor(installed, latest, root, installed !== null && checks !== null && needsRepair(checks, installed));
   const rest = target === null || minimum === null ? null : restStep(root, target, minimum);
   const known = `${latest === null ? said.npmDown : ""}${missing === null ? ui.pieces.flow.labelsUnread : ""}`;

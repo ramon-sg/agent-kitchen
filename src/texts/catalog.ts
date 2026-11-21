@@ -31,6 +31,8 @@ export interface PieceTexts {
   notExact: (spec: string) => string;
   /** A package written into package.json. */
   inPackage: (name: string, version: string) => string;
+  /** A package written into `.agents/runner.json`. */
+  inRunner: (name: string, version: string) => string;
   alreadyFine: string;
   /** A tool that failed, with the command to run by hand. */
   failed: (what: string, command: string) => string;
@@ -183,6 +185,12 @@ export interface Catalog {
       /** A range left alone, and the version it runs if that is below the minimum. */
       rangeKept: (spec: string, runs: string | null, minimum: string) => string;
       checkMissing: (minimum: string) => string;
+      /** In runner mode: not pinned in `.agents/runner.json`. */
+      missingInRunner: string;
+      /** The same, in doctor. */
+      checkMissingInRunner: string;
+      /** The session-notice hook pinned to a version. */
+      hookPinned: (command: string) => string;
       checkBelow: (version: string, minimum: string) => string;
       checkOk: (version: string, minimum: string) => string;
       checkRangeBelow: (spec: string, runs: string, minimum: string) => string;
@@ -210,6 +218,8 @@ export interface Catalog {
       summary: string;
       unpinned: (config: string) => string;
       checkUnpinned: (config: string, example: string) => string;
+      /** In runner mode: `.agents/runner.json` does not pin it. */
+      checkUnpinnedInRunner: (file: string) => string;
     };
     guard: {
       summary: string;
@@ -224,6 +234,8 @@ export interface Catalog {
       checkNotInstalled: string;
       checkWeaker: (config: string) => string;
       checkOk: (version: string) => string;
+      /** In runner mode, with its manifest but no entry in `.agents/runner.json`. */
+      checkUnpinnedInRunner: string;
     };
     skills: {
       summary: string;

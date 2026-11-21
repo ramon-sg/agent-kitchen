@@ -27,7 +27,9 @@ registry.stdout.unref();
 // The latest of everything on npm, unless a test says otherwise.
 export { GIT_ENV };
 
-export const NPM = { "@ramon-sg/issue-flow": "0.2.0", "agent-cloud-kit": "1.1.0" };
+// agent-cloud-kit stays below 1.0.0, its first version that reads runner.json, so a legacy repo
+// may go to it.
+export const NPM = { "@ramon-sg/issue-flow": "0.2.0", "agent-cloud-kit": "0.9.1" };
 
 // What npm answers when agent-cloud-kit's `latest` is `version` (a release candidate, say) and
 // everything else is as in NPM. For FAKE_NPM.
@@ -91,8 +93,8 @@ export function makeRepo({ tags = { "ramon-sg/claude-repo-guard": ["0.1.0", "0.2
   }
   const log = join(tmp, "calls.jsonl");
   const id = basename(tmp);
-  // What the fake registry answers for this repo: the FAKE_NPM and FAKE_NPM_DEPS of the run.
-  const serve = (env) => writeFileSync(join(tmp, "registry.json"), JSON.stringify({ latest: JSON.parse(env.FAKE_NPM ?? "{}"), deps: JSON.parse(env.FAKE_NPM_DEPS ?? "{}") }));
+  // What the fake registry answers for this repo: the FAKE_NPM, FAKE_NPM_DEPS and FAKE_NPM_VERSIONS of the run.
+  const serve = (env) => writeFileSync(join(tmp, "registry.json"), JSON.stringify({ latest: JSON.parse(env.FAKE_NPM ?? "{}"), deps: JSON.parse(env.FAKE_NPM_DEPS ?? "{}"), versions: JSON.parse(env.FAKE_NPM_VERSIONS ?? "{}") }));
   const env = (extra = {}) => ({
     ...process.env,
     PATH: `${bin}:${process.env.PATH}`,
@@ -148,7 +150,7 @@ export function makeRepo({ tags = { "ramon-sg/claude-repo-guard": ["0.1.0", "0.2
 
 // A repo as agent-kitchen leaves it at the given versions: the flow, its skills and the general
 // ones, agent-cloud-kit, claude-repo-guard (with the flow's options) and the rule in AGENTS.md.
-export function installedRepo({ flow = "0.2.0", cloud = "1.1.0", guard = "0.2.0", general = "v0.2.0", tags } = {}) {
+export function installedRepo({ flow = "0.2.0", cloud = "0.9.1", guard = "0.2.0", general = "v0.2.0", tags } = {}) {
   const repo = makeRepo(tags === undefined ? {} : { tags });
   repo.write("package.json", { devDependencies: { "@ramon-sg/issue-flow": flow, "@ramon-sg/github-rest": "0.2.1", "@ramon-sg/skills-manager": "1.2.0" } });
   repo.write(".agents/flow.json", {});

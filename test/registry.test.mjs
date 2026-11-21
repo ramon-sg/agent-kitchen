@@ -16,7 +16,7 @@ const withoutNpm = (repo) => {
 };
 
 test("the latest versions are the same without npm, and npm is never called", () => {
-  const repo = installedRepo({ flow: "0.1.0", cloud: "1.0.0" });
+  const repo = installedRepo({ flow: "0.1.0", cloud: "0.9.0" });
   const withNpm = repo.cli(["apply", "--dry-run"]);
   const without = repo.cli(["apply", "--dry-run"], { env: { PATH: withoutNpm(repo) } });
 

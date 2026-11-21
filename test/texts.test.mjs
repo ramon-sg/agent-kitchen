@@ -14,6 +14,8 @@ const SAMPLES = [
   { kind: "skills-manager-create", version: "1.2.0" },
   { kind: "skills-manager-add", version: "1.2.0" },
   { kind: "skills-manager-bump", from: "1.1.0", to: "1.2.0" },
+  { kind: "skills-manager-pin", version: "1.5.1" },
+  { kind: "skills-manager-update", from: "1.5.0", to: "1.5.1" },
   { kind: "flow-install", version: "0.3.0" },
   { kind: "flow-update", from: "0.2.7", to: "0.3.0" },
   { kind: "flow-repair", version: "0.3.0" },

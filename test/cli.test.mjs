@@ -40,7 +40,7 @@ test("apply --yes installs with the same calls as the bare command did", () => {
 
 test("a newer agent-kitchen gets apply too, and the bare command's notice is left to it", () => {
   const repo = makeRepo();
-  const npm = JSON.stringify({ "agent-kitchen": "9.0.0", "@ramon-sg/issue-flow": "0.2.0", "agent-cloud-kit": "1.1.0" });
+  const npm = JSON.stringify({ "agent-kitchen": "9.0.0", "@ramon-sg/issue-flow": "0.2.0", "agent-cloud-kit": "0.9.1" });
 
   const applied = repo.cli(["apply", "--dry-run"], { env: { FAKE_NPM: npm } });
   const appliedCalls = repo.calls();
@@ -77,11 +77,11 @@ test("the usage and doctor's hints say npx agent-kitchen apply", () => {
 });
 
 test("every doctor hint of a piece behind says apply", () => {
-  const repo = installedRepo({ cloud: "1.0.0", flow: "0.1.0" });
+  const repo = installedRepo({ cloud: "0.9.0", flow: "0.1.0" });
 
   const r = repo.cli(["doctor"]);
 
-  assert.match(r.out, /hay 1\.1\.0: corre npx agent-kitchen apply/);
+  assert.match(r.out, /hay 0\.9\.1: corre npx agent-kitchen apply/);
   assert.match(r.out, /issue-flow está en 0\.1\.0: corre npx agent-kitchen apply|no tiene doctor --json: corre npx agent-kitchen apply/);
   assert.doesNotMatch(r.out, /corre npx agent-kitchen(?! apply)/);
 });
@@ -104,7 +104,7 @@ test("--pieces needs a terminal and goes alone", () => {
 
 test("a newer agent-kitchen is run with node's npx when node ran this one", () => {
   const repo = makeRepo();
-  const npm = JSON.stringify({ "agent-kitchen": "9.0.0", "@ramon-sg/issue-flow": "0.2.0", "agent-cloud-kit": "1.1.0" });
+  const npm = JSON.stringify({ "agent-kitchen": "9.0.0", "@ramon-sg/issue-flow": "0.2.0", "agent-cloud-kit": "0.9.1" });
 
   const handed = repo.cli(["--dry-run", "--skip", "skills"], { env: { FAKE_NPM: npm } });
 
@@ -121,7 +121,7 @@ const bunSkip = bun.status === 0 ? false : "bun is not usable on this machine (`
 
 test("a newer agent-kitchen is run with bunx --bun when bun ran this one", { skip: bunSkip }, () => {
   const repo = makeRepo();
-  const npm = JSON.stringify({ "agent-kitchen": "9.0.0", "@ramon-sg/issue-flow": "0.2.0", "agent-cloud-kit": "1.1.0" });
+  const npm = JSON.stringify({ "agent-kitchen": "9.0.0", "@ramon-sg/issue-flow": "0.2.0", "agent-cloud-kit": "0.9.1" });
   const runtime = join(repo.tmp, "bin", "bun");
   symlinkSync(bun.stdout.trim(), runtime);
 

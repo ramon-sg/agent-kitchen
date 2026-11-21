@@ -41,7 +41,8 @@ import { keepOwn, NAME as SKILLS, ownInPick, skillsStatus } from "../pieces/skil
 import { agentsMdStatus, NAME as AGENTS_MD } from "../pieces/agents-md.js";
 import { NAME as SKILLS_MANAGER, skillsManagerStatus } from "../pieces/skills-manager.js";
 import { mainCheckout, ownDependencies, packageManager, packageText, readJson } from "../repo.js";
-import { download, failedOutput, repoMode, runInstall, setVerbose } from "../tools.js";
+import { download, failedOutput, repoMode, runInstall, setVerbose, toolText } from "../tools.js";
+import { CLOUD_PACKAGE, toolVersion } from "../runner-mode.js";
 import { commitLine, DECISIONS_LINE } from "../commit-texts.js";
 import { type Progress, progressFor } from "../progress.js";
 import { phrases, stepLabel, ui } from "../texts/index.js";
@@ -448,7 +449,10 @@ async function applyIn(work: Workplace, options: SyncOptions, out: Output): Prom
  * @returns The block's `next`, or nothing.
  */
 function cloudNext(root: string, skip: string[]): Pick<Block, "next"> {
-  if (skip.includes(CLOUD) || readJson(root, ".claude/cloud.json") === null) return {};
+  if (skip.includes(CLOUD)) return {};
+  const version = repoMode(root).kind === "runner" ? toolVersion(root, CLOUD_PACKAGE) : null;
+  if (version !== null) return { next: { label: ui.cloudNext, command: toolText(root, [`${CLOUD_PACKAGE}@${version}`, "prepare"]) } };
+  if (readJson(root, ".claude/cloud.json") === null) return {};
   return { next: { label: ui.cloudNext, command: "npx agent-cloud-kit prepare" } };
 }
 

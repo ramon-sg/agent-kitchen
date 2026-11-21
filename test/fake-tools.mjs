@@ -23,12 +23,25 @@
 //  - github-rest pr create prints a PR's URL. Each call logs GH_REPO too, and the language
 //    variables of claude-repo-guard and issue-flow (null when unset or empty).
 //  - npm install and pnpm install write their lockfile, or exit 1 if FAKE_FAIL is "install".
+//  - From the first version that reads `.agents/runner.json` (issue-flow 0.6.0, skills-manager
+//    1.5.0, claude-repo-guard 0.8.0 on npm, agent-cloud-kit 1.0.0), each one writes its entry
+//    there (with the real setTool and writeRunnerConfig of @ramon-sg/runner) instead of
+//    devDependencies, cloud.json or the guard's manifest version, as the real ones do:
+//    issue-flow apply raises its own, adds github-rest only if missing (at the repo's exact
+//    devDependency, else 0.6.0), drops both from devDependencies and writes its three hooks and
+//    its shortcuts with the runner's command; `issue-flow --version --json` prints its
+//    githubRest (FAKE_FLOW_REST, else 0.6.0). skills-manager raises its own on init, add,
+//    install and update when the repo has a manifest. agent-cloud-kit init raises its own
+//    (seeded from cloud.json). The guard's apply sets its own (lowering too) in a repo with
+//    runner.json, stays in legacy mode in one with its manifest and no runner.json, and makes
+//    runner.json on a new install; it writes its manifest and its shortcuts.
 // bunx takes a leading `--bun` where npx takes `--yes`, and goes on as npx.
 // Any npx call whose arguments contain FAKE_FAIL exits 1, saying so on stderr. A download
 // ahead of a step (`npx --package <spec>`) does nothing. Every other npx call prints
 // FAKE_SAY, if set, as a tool's own output would be.
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { effectiveRunner, readRunnerConfig, setTool, toolCommandText, writeRunnerConfig, writeScripts } from "@ramon-sg/runner";
 
 const program = process.env.FAKE_AS ?? "npx";
 const logArgs = process.argv.slice(2);
@@ -42,6 +55,16 @@ appendFileSync(process.env.FAKE_LOG, `${JSON.stringify({ program, args: logArgs,
 const args = program === "bunx" && logArgs[0] === "--bun" ? ["--yes", ...logArgs.slice(1)] : logArgs;
 
 const readJson = (path) => (existsSync(path) ? JSON.parse(readFileSync(path, "utf8")) : null);
+// Whether a version is at or above another, both as x.y.z.
+const atLeast = (version, since) => version !== null && /^\d+\.\d+\.\d+/.test(version) && version.split(/[.-]/).slice(0, 3).map(Number).reduce((diff, part, index) => diff || part - since[index], 0) >= 0;
+// The repo's runner.json, or a new one with Bun.
+const runnerFile = (cwd) => readRunnerConfig(cwd) ?? { runner: "bun", tools: {}, extra: {} };
+// Writes a tool's entry into runner.json.
+const pinTool = (cwd, pkg, version, options) => {
+  const { config, changed } = setTool(runnerFile(cwd), pkg, version, options);
+  if (changed || !existsSync(join(cwd, ".agents", "runner.json"))) writeRunnerConfig(cwd, config);
+  return config;
+};
 const writeJson = (path, value) => {
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, JSON.stringify(value, null, 2));
@@ -90,6 +113,7 @@ const langVar = (() => {
   const at = (version, since) => version !== null && version.split(".").map(Number).reduce((diff, part, index) => diff || part - since[index], 0) >= 0;
   if (spec.startsWith("@ramon-sg/issue-flow@") && at(spec.split("@").at(-1), [0, 5, 0])) return "ISSUE_FLOW_LANG";
   if (spec.startsWith("github:ramon-sg/claude-repo-guard") && at(spec.includes("#v") ? spec.split("#v")[1] : "9.9.9", [0, 7, 0])) return "CLAUDE_REPO_GUARD_LANG";
+  if (spec.startsWith("@ramon-sg/claude-repo-guard@")) return "CLAUDE_REPO_GUARD_LANG";
   return null;
 })();
 if (langVar !== null && process.env[langVar] && !["es", "en"].includes(process.env[langVar])) {
@@ -107,7 +131,39 @@ if (spec.startsWith("@ramon-sg/issue-flow@")) {
     process.stderr.write('issue-flow: unknown command "apply"\n');
     process.exit(2);
   }
-  if (command === "apply") {
+  const runnerAware = atLeast(version, [0, 6, 0]);
+  if (command === "--version" && runnerAware) process.stdout.write(`${JSON.stringify({ version, githubRest: process.env.FAKE_FLOW_REST ?? "0.6.0", runner: "1.0.0" })}\n`);
+  if (command === "apply" && runnerAware) {
+    if (process.env.FAKE_FLOW_APPLY_ERROR) {
+      process.stderr.write(`${process.env.FAKE_FLOW_APPLY_ERROR}\n`);
+      process.exit(1);
+    }
+    const legacyRest = pkg.devDependencies?.["@ramon-sg/github-rest"];
+    pinTool(cwd, "@ramon-sg/issue-flow", version);
+    const config = pinTool(cwd, "@ramon-sg/github-rest", /^\d+\.\d+\.\d+$/.test(legacyRest ?? "") ? legacyRest : "0.6.0", { ifMissing: true });
+    const runner = effectiveRunner(config);
+    const run = (args) => toolCommandText(runner, "@ramon-sg/issue-flow", version, args);
+    if (existsSync(pkgFile)) {
+      const next = readJson(pkgFile);
+      for (const field of ["dependencies", "devDependencies"]) {
+        if (next[field] === undefined) continue;
+        delete next[field]["@ramon-sg/issue-flow"];
+        delete next[field]["@ramon-sg/github-rest"];
+        if (Object.keys(next[field]).length === 0) delete next[field];
+      }
+      writeJson(pkgFile, next);
+    }
+    writeScripts(cwd, runner, { "issue:start": run(["issue", "start"]), "worktree:prune": run(["worktree", "prune"]), "pr:worktree": run(["pr", "worktree"]) }, "@ramon-sg/issue-flow@");
+    const settingsFile = join(cwd, ".claude", "settings.json");
+    const settings = readJson(settingsFile) ?? {};
+    const hook = (args) => [{ hooks: [{ type: "command", command: run(args), timeout: 600 }] }];
+    const others = (event) => (settings.hooks?.[event] ?? []).filter((group) => !JSON.stringify(group).includes("@ramon-sg/issue-flow@"));
+    settings.hooks = { ...settings.hooks, SessionStart: [...others("SessionStart"), ...hook(["session"])], WorktreeCreate: [...others("WorktreeCreate"), ...hook(["hook", "worktree-create"])], WorktreeRemove: [...others("WorktreeRemove"), ...hook(["hook", "worktree-remove"])] };
+    writeJson(settingsFile, settings);
+    if (!existsSync(join(cwd, ".agents", "flow.json"))) writeJson(join(cwd, ".agents", "flow.json"), {});
+    const kept = process.env.FAKE_FLOW_KEPT ? [process.env.FAKE_FLOW_KEPT] : [];
+    process.stdout.write(process.env.FAKE_FLOW_APPLY_OUT ?? `${JSON.stringify({ version, changes: [`.agents/runner.json: @ramon-sg/issue-flow ${version}`], kept, written: true, next: [] })}\n`);
+  } else if (command === "apply") {
     if (process.env.FAKE_FLOW_APPLY_ERROR) {
       process.stderr.write(`${process.env.FAKE_FLOW_APPLY_ERROR}\n`);
       process.exit(1);
@@ -143,6 +199,14 @@ if (spec.startsWith("@ramon-sg/issue-flow@")) {
   }
 } else if (spec.startsWith("@ramon-sg/github-rest@") && command === "pr" && rest[0] === "create") {
   process.stdout.write("https://github.com/o/r/pull/7\n");
+} else if (spec.startsWith("agent-cloud-kit@") && command === "init" && atLeast(spec.split("@").at(-1), [1, 0, 0]) && !spec.split("@").at(-1).includes("-")) {
+  const version = spec.split("@").at(-1);
+  const cloudFile = join(cwd, ".claude", "cloud.json");
+  const seed = readJson(cloudFile)?.version;
+  // Like the real one: a new runner.json starts at cloud.json's version, and then rises to this one.
+  if (!existsSync(join(cwd, ".agents", "runner.json")) && typeof seed === "string" && /^\d+\.\d+\.\d+/.test(seed)) pinTool(cwd, "agent-cloud-kit", seed);
+  pinTool(cwd, "agent-cloud-kit", version);
+  if (!existsSync(cloudFile)) writeJson(cloudFile, {});
 } else if (spec.startsWith("agent-cloud-kit@") && command === "init") {
   const version = spec.split("@").at(-1);
   // Idempotent like the real one: it does not overwrite an existing config.
@@ -167,7 +231,29 @@ if (spec.startsWith("@ramon-sg/issue-flow@")) {
     writeJson(join(cwd, ".claude", "repo-guard.manifest.json"), { version: version ?? "0.0.0" });
   }
   if (command === "doctor") process.stdout.write(process.env.FAKE_GUARD_DOCTOR ?? "[]");
+} else if (spec.startsWith("@ramon-sg/claude-repo-guard@")) {
+  const version = spec.split("@").at(-1);
+  if (command === "apply") {
+    if (process.env.FAKE_GUARD_ERROR) {
+      process.stderr.write(`${process.env.FAKE_GUARD_ERROR}\n`);
+      process.exit(1);
+    }
+    const manifest = join(cwd, ".claude", "repo-guard.manifest.json");
+    const legacy = existsSync(manifest) && !existsSync(join(cwd, ".agents", "runner.json"));
+    if (!legacy) {
+      const config = pinTool(cwd, "@ramon-sg/claude-repo-guard", version, { allowLower: true });
+      writeScripts(cwd, effectiveRunner(config), { "claude:auto": "claude --settings .claude/repo-guard.auto-mode.json --permission-mode auto" }, "repo-guard");
+    }
+    writeJson(manifest, { version });
+  }
+  if (command === "doctor") process.stdout.write(process.env.FAKE_GUARD_DOCTOR ?? "[]");
 } else if (spec.startsWith("@ramon-sg/skills-manager@")) {
+  const version = spec.split("@").at(-1);
+  const writes = ["init", "add", "install", "update"].includes(command) && !rest.includes("--candidates") && !rest.includes("--dry-run");
+  // Like the real one from 1.5.0: once it worked, it raises its own entry, if the repo has a manifest.
+  process.on("exit", (code) => {
+    if (code === 0 && writes && atLeast(version, [1, 5, 0]) && existsSync(join(cwd, ".agents", "skills.json"))) pinTool(cwd, "@ramon-sg/skills-manager", version);
+  });
   if (rest.includes("--candidates")) process.stdout.write(process.env.FAKE_CANDIDATES ?? "[]");
   else if (command === "init") writeJson(join(cwd, ".agents", "skills.json"), { sources: [] });
   else if (command === "check" && process.env.FAKE_CHECK_FAIL) process.exit(1);

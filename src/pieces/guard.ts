@@ -1,8 +1,11 @@
 /**
  * @file The guardrails (`claude-repo-guard`): auto mode with the sandbox, installed in the
- * repo. It is not on npm, so it runs from GitHub at its `vX.Y.Z` tag; the repo's version is
- * the one its manifest records. Before installing or updating, agent-kitchen writes in its
- * options what the issue flow needs, if the repo has the flow: the auto mode is told that
+ * repo. In runner mode it runs from npm (`@ramon-sg/claude-repo-guard`, from 0.8.0) with the
+ * repo's runner, its version is the one `.agents/runner.json` pins and its latest is npm's. In
+ * a legacy repo it runs from GitHub at its `vX.Y.Z` tag, its version is the one its manifest
+ * records, and it only goes to tags below v0.8.0, the first that reads runner.json.
+ *
+ * Before installing or updating, agent-kitchen writes in its options what the issue flow needs, if the repo has the flow: the auto mode is told that
  * the flow's writes are normal, the flow's base branch becomes `integrationBranch`, and on
  * macOS `weakerNetworkIsolation` lets `gh` work inside the sandbox (the guard's own default
  * is false, so false counts as missing; the step can be unticked). When the flow is
@@ -16,13 +19,14 @@
 import { type Check, type Context, FLOW_CONFIG, type PieceStatus, type Step } from "../piece.js";
 import { readJson, writeJson } from "../repo.js";
 import { currentLang, ui } from "../texts/index.js";
-import { captureTool, compareVersions, isRelease, latestTag, runTool, toolText } from "../tools.js";
+import { GUARD_MANIFEST, GUARD_PACKAGE, GUARD_REPO, offeredVersion, toolVersion } from "../runner-mode.js";
+import { captureTool, compareVersions, repoMode, runTool, toolText } from "../tools.js";
 
 /** The piece's name, as `--skip` takes it. */
 export const NAME = "claude-repo-guard";
 
 /** Its GitHub repo. */
-export const REPO = "ramon-sg/claude-repo-guard";
+export const REPO = GUARD_REPO;
 
 /** The variable that picks the guard's language (from 0.7.0; older versions ignore it). */
 const LANG_VAR = "CLAUDE_REPO_GUARD_LANG";
@@ -30,8 +34,8 @@ const LANG_VAR = "CLAUDE_REPO_GUARD_LANG";
 /** Its options in the repo. */
 const CONFIG = ".claude/repo-guard.config.json";
 
-/** What its install records, with its version. */
-const MANIFEST = ".claude/repo-guard.manifest.json";
+/** What its install records, with its version in a legacy repo. */
+const MANIFEST = GUARD_MANIFEST;
 
 /** What the auto mode is told about the issue flow. */
 export const GUARD_ENVIRONMENT =
@@ -41,12 +45,14 @@ export const GUARD_ENVIRONMENT =
 export const WEAKER_NETWORK = "weakerNetworkIsolation";
 
 /**
- * The npx spec of a version.
- * @param version - The version, or null for the default branch.
+ * The spec that runs a version: from npm in runner mode, from GitHub in a legacy repo.
+ * @param root - The repo.
+ * @param version - The version, or null for the default branch (legacy only).
  * @returns The spec.
- * @example guardSpec("0.2.0") // "github:ramon-sg/claude-repo-guard#v0.2.0"
+ * @example guardSpec(root, "0.2.0") // "github:ramon-sg/claude-repo-guard#v0.2.0"
  */
-export function guardSpec(version: string | null): string {
+export function guardSpec(root: string, version: string | null): string {
+  if (repoMode(root).kind === "runner" && version !== null) return `${GUARD_PACKAGE}@${version}`;
   return version === null ? `github:${REPO}` : `github:${REPO}#v${version}`;
 }
 
@@ -75,7 +81,7 @@ export function guardCommand(version: string | null): string {
  * @example guardFailure(root, "0.5.1", "Error: EPERM: operation not permitted") // "…sandbox…"
  */
 export function guardFailure(root: string, version: string | null, output: string): string {
-  const command = toolText(root, [guardSpec(version), guardCommand(version)]);
+  const command = toolText(root, [guardSpec(root, version), guardCommand(version)]);
   return PERMISSION_ERROR.test(output) ? ui.pieces.guard.sandbox(command) : ui.pieces.guard.failed(command);
 }
 
@@ -117,7 +123,7 @@ async function install(context: Context, version: string | null): Promise<boolea
   const { options, changes } = guardOptions(context.root, process.platform);
   if (changes.length > 0) writeJson(context.root, CONFIG, options);
   for (const change of changes) context.note(change);
-  const run = await runTool(context.root, [guardSpec(version), guardCommand(version), "--yes"], { [LANG_VAR]: currentLang() });
+  const run = await runTool(context.root, [guardSpec(context.root, version), guardCommand(version), "--yes"], { [LANG_VAR]: currentLang() });
   if (run.ok) return true;
   context.fail(guardFailure(context.root, version, run.output), run.output);
   return false;
@@ -137,14 +143,14 @@ async function addOptions(context: Context, version: string | null): Promise<boo
 }
 
 /**
- * The version its manifest records.
+ * The repo's version: the one runner.json pins, or in a legacy repo the one its manifest records.
  * @param root - The repo.
- * @returns The version, null if it records none, or undefined if it is not installed.
+ * @returns The version, null if none is known, or undefined if it is not installed.
  */
 function installedVersion(root: string): string | null | undefined {
-  const manifest = readJson(root, MANIFEST);
-  if (manifest === null) return undefined;
-  return typeof manifest.version === "string" && isRelease(manifest.version) ? manifest.version : null;
+  const version = toolVersion(root, GUARD_PACKAGE);
+  if (version !== null) return version;
+  return readJson(root, MANIFEST) === null ? undefined : null;
 }
 
 /**
@@ -156,11 +162,11 @@ function installedVersion(root: string): string | null | undefined {
  */
 function stepFor(root: string, installed: string | null | undefined, latest: string | null, flowComing: boolean): Step | null {
   if (installed === undefined)
-    return { piece: NAME, checked: true, downloads: [guardSpec(latest)], text: { kind: "guard-install", version: latest }, run: (context) => install(context, latest) };
+    return latest === null ? null : { piece: NAME, checked: true, downloads: [guardSpec(root, latest)], text: { kind: "guard-install", version: latest }, run: (context) => install(context, latest) };
   if (latest !== null && (installed === null || compareVersions(latest, installed) > 0))
-    return { piece: NAME, checked: true, downloads: [guardSpec(latest)], text: { kind: "guard-update", from: installed, to: latest }, run: (context) => install(context, latest) };
-  if (flowComing || guardOptions(root, process.platform).changes.length > 0)
-    return { piece: NAME, checked: true, downloads: [guardSpec(installed)], text: { kind: "guard-adjust" }, run: (context) => addOptions(context, installed) };
+    return { piece: NAME, checked: true, downloads: [guardSpec(root, latest)], text: { kind: "guard-update", from: installed, to: latest }, run: (context) => install(context, latest) };
+  if (installed !== null && (flowComing || guardOptions(root, process.platform).changes.length > 0))
+    return { piece: NAME, checked: true, downloads: [guardSpec(root, installed)], text: { kind: "guard-adjust" }, run: (context) => addOptions(context, installed) };
   return null;
 }
 
@@ -173,9 +179,9 @@ function stepFor(root: string, installed: string | null | undefined, latest: str
  */
 export async function guardStatus(root: string, flowComing: boolean): Promise<PieceStatus> {
   const installed = installedVersion(root);
-  const latest = await latestTag(REPO);
+  const latest = await offeredVersion(root, GUARD_PACKAGE);
   const said = ui.pieces.common;
-  const known = latest === null ? ui.pieces.guard.noTag : "";
+  const known = latest === null ? (repoMode(root).kind === "runner" ? said.npmDown : ui.pieces.guard.noTag) : "";
   const shown = installed ?? ui.pieces.guard.unknown;
   const state = installed === undefined ? `${said.notInstalled}${known}` : latest !== null && (installed === null || compareVersions(latest, installed) > 0) ? said.behind(shown, latest) : `${said.upToDate(shown)}${known}`;
   const step = stepFor(root, installed, latest, flowComing);
@@ -197,14 +203,15 @@ export async function guardChecks(root: string): Promise<Check[]> {
   const checks: Check[] = [];
   if (process.platform === "darwin" && readJson(root, CONFIG)?.[WEAKER_NETWORK] !== true)
     checks.push({ name: `${NAME}: ${WEAKER_NETWORK}`, status: "fail", detail: said.checkWeaker(CONFIG) });
-  const result = await captureTool(root, [guardSpec(installed), "doctor", "--json"], false, { [LANG_VAR]: currentLang() });
+  if (installed === null && repoMode(root).kind === "runner") return [...checks, { name: NAME, status: "fail", detail: ui.pieces.guard.checkUnpinnedInRunner }];
+  const result = await captureTool(root, [guardSpec(root, installed), "doctor", "--json"], false, { [LANG_VAR]: currentLang() });
   let found: unknown;
   try {
     found = JSON.parse(result?.out ?? "");
   } catch {
     found = null;
   }
-  if (!Array.isArray(found)) return [...checks, { name: NAME, status: "fail", detail: ui.pieces.common.doctorFailed(toolText(root, [guardSpec(installed), "doctor"])) }];
+  if (!Array.isArray(found)) return [...checks, { name: NAME, status: "fail", detail: ui.pieces.common.doctorFailed(toolText(root, [guardSpec(root, installed), "doctor"])) }];
   const bad = found.filter((check: unknown) => typeof check !== "object" || check === null || (check as { ok?: unknown }).ok !== true);
   if (bad.length === 0) return [...checks, { name: NAME, status: "ok", detail: said.checkOk(installed ?? said.unknown) }];
   return [...checks, ...bad.map((check: unknown) => {

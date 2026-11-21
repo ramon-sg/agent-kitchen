@@ -13,6 +13,8 @@ export type StepText =
   | { kind: "skills-manager-create"; version: string }
   | { kind: "skills-manager-add"; version: string }
   | { kind: "skills-manager-bump"; from: string; to: string }
+  | { kind: "skills-manager-pin"; version: string }
+  | { kind: "skills-manager-update"; from: string; to: string }
   | { kind: "flow-install"; version: string }
   | { kind: "flow-update"; from: string; to: string }
   | { kind: "flow-repair"; version: string }
