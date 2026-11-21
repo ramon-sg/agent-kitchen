@@ -44,7 +44,7 @@ import { keepOwn, NAME as SKILLS, ownInPick, skillsStatus } from "../pieces/skil
 import { agentsMdStatus, NAME as AGENTS_MD } from "../pieces/agents-md.js";
 import { NAME as SKILLS_MANAGER, skillsManagerStatus } from "../pieces/skills-manager.js";
 import { MOVED_PIECES, NAME as RUNNER, runnerStatus } from "../pieces/runner.js";
-import { dependencyVersion, mainCheckout, ownDependencies, packageManager, packageText, readJson } from "../repo.js";
+import { dependencyEntries, dependencyVersion, mainCheckout, ownDependencies, packageManager, packageText, readJson } from "../repo.js";
 import { download, failedOutput, previewRunner, repoMode, runInstall, setVerbose, toolText } from "../tools.js";
 import { CLOUD_CONFIG, CLOUD_PACKAGE, GUARD_MANIFEST, toolVersion } from "../runner-mode.js";
 import { commitLine, DECISIONS_LINE, runnerLine } from "../commit-texts.js";
@@ -520,9 +520,10 @@ async function applyIn(work: Workplace, options: SyncOptions, out: Output): Prom
   }
   const failed = failedSteps.map(stepLabel);
   // A runner.json this run wrote, before the steps (a new repo) or in one (the move), is not committed yet.
-  const runnerNew = wroteRunner || chosen.some((step) => step.piece === RUNNER && !failedSteps.includes(step));
-  if (work.kind === "pr") return openPr(work, commitLabels(chosen.filter((step) => !failedSteps.includes(step)), wrote, wroteRunner ? created : null), failed, progress, out);
-  const installFailed = packageText(root) !== pkgBefore && needsInstall(root) ? !(await install(root, progress, out)) : false;
+  const moved = chosen.some((step) => step.piece === RUNNER && !failedSteps.includes(step));
+  const runnerNew = wroteRunner || moved;
+  if (work.kind === "pr") return openPr(work, commitLabels(chosen.filter((step) => !failedSteps.includes(step)), wrote, wroteRunner ? created : null), failed, progress, out, moved);
+  const installFailed = packageText(root) !== pkgBefore && needsInstall(root, moved) ? !(await install(root, progress, out)) : false;
   if (installFailed) failed.push(phrases({ kind: "install-deps", manager: packageManager(root) }).menu);
   show(out, { mood: failed.length === 0 ? "ok" : "error", title: ui.summary(failed), lines: [ui.next(installFailed ? packageManager(root) : null), ...(runnerNew ? [ui.runnerLeft(RUNNER_FILE)] : [])], ...cloud() }, root);
   return failed.length === 0 ? 0 : 1;
@@ -545,11 +546,14 @@ function cloudNext(root: string, skip: string[]): Pick<Block, "next"> {
 /**
  * Whether the repo's install is worth running: in runner mode the tools run through bunx or
  * npx, so only dependencies of the repo's own need node_modules. Without runner.json, always.
+ * After the `runner` piece's step (the move, or its end), any dependency entry package.json
+ * keeps counts, an ecosystem tool used as a library included: that step kept its lockfile.
  * @param root - The repo.
+ * @param moved - Whether the `runner` piece's step worked in this run.
  * @returns Whether to install.
  */
-function needsInstall(root: string): boolean {
-  return repoMode(root).kind !== "runner" || ownDependencies(root).length > 0;
+function needsInstall(root: string, moved = false): boolean {
+  return repoMode(root).kind !== "runner" || ownDependencies(root).length > 0 || (moved && dependencyEntries(readJson(root, "package.json")).length > 0);
 }
 
 /**
@@ -576,9 +580,10 @@ async function install(root: string, progress: Progress, out: Output): Promise<b
  * @param failed - The steps that failed, as the interface names them.
  * @param progress - How progress is shown, for the install.
  * @param out - Where to write.
+ * @param moved - Whether the `runner` piece's step worked in this run (see needsInstall).
  * @returns 0, or 1 if a step, the install, git or the PR failed.
  */
-async function openPr(work: Extract<Workplace, { kind: "pr" }>, done: string[], failed: string[], progress: Progress, out: Output): Promise<number> {
+async function openPr(work: Extract<Workplace, { kind: "pr" }>, done: string[], failed: string[], progress: Progress, out: Output, moved = false): Promise<number> {
   const end = (block: Block): void => show(out, block, work.root);
   const before = changedPaths(work.root);
   if (before.length === 0) {
@@ -591,7 +596,7 @@ async function openPr(work: Extract<Workplace, { kind: "pr" }>, done: string[], 
     return 1;
   }
   // A clone starts without node_modules, and the repo's hooks may need them.
-  if (packageText(work.root) !== null && needsInstall(work.root) && !(await install(work.root, progress, out))) {
+  if (packageText(work.root) !== null && needsInstall(work.root, moved) && !(await install(work.root, progress, out))) {
     work.keep = true;
     end({ mood: "error", title: ui.summary([phrases({ kind: "install-deps", manager: packageManager(work.root) }).menu]), lines: [ui.prNotOpened("install", work.root)] });
     return 1;

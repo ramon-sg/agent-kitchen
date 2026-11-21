@@ -31,7 +31,7 @@ import { join } from "node:path";
 import { checkRunner, chooseRunner, RUNNER_FILE, type Runner, toolCommandText, writeRunnerConfig } from "@ramon-sg/runner";
 import { KitError } from "../output.js";
 import { type Check, type Context, FLOW_PACKAGE, type PieceStatus, SKILLS_MANAGER, SKILLS_MANIFEST, type Step } from "../piece.js";
-import { dependencyVersion, ECOSYSTEM_TOOLS, editPackage, isObject, lockfiles, ownDependencies, packageManager, readJson, writeJson } from "../repo.js";
+import { dependencyEntries, dependencyVersion, ECOSYSTEM_TOOLS, editPackage, isObject, lockfiles, packageManager, readJson, writeJson } from "../repo.js";
 import { CLOUD_CONFIG, CLOUD_PACKAGE, GITHUB_REST, GUARD_MANIFEST, GUARD_PACKAGE, RUNNER_MINIMUMS, runnerLatest, toolVersion } from "../runner-mode.js";
 import { ui } from "../texts/index.js";
 import { compareSemver, isExactVersion, npmLatest, raiseTool, repoMode } from "../tools.js";
@@ -268,7 +268,8 @@ interface Leftovers {
 
 /**
  * What the legacy repo left behind, in a repo in runner mode. The lockfile and node_modules
- * count only when the repo has no dependencies of its own and a legacy trace goes with them (an
+ * count only when package.json keeps no dependency entry in any field (nor workspaces) once the
+ * cleanup is done, and a legacy trace goes with them (an
  * ecosystem tool in devDependencies, or the `version` of cloud.json), or at the end of the move:
  * a repo in runner mode that keeps them on its own may well use them.
  * @param root - The repo, in runner mode.
@@ -286,7 +287,9 @@ function leftovers(root: string, can: (pkg: string) => boolean, moving: boolean)
   const ownsScripts = can(SKILLS_MANAGER);
   const cloudVersion = can(CLOUD_PACKAGE) && readJson(root, CLOUD_CONFIG)?.version !== undefined;
   const traced = moving || deps.length > 0 || cloudVersion;
-  const files = !traced || ownDependencies(root).length > 0 ? [] : [...lockfiles(root), ...(existsSync(join(root, "node_modules")) ? ["node_modules"] : [])];
+  // The lockfile and node_modules go only if package.json keeps no dependency at all once the cleanup is done.
+  const kept = dependencyEntries(pkg, { names: deps, fields: moving ? ["dependencies", "devDependencies"] : ["devDependencies"] });
+  const files = !traced || kept.length > 0 ? [] : [...lockfiles(root), ...(existsSync(join(root, "node_modules")) ? ["node_modules"] : [])];
   const version = tools[SKILLS_MANAGER];
   const command = version === undefined || mode.kind !== "runner" ? null : toolCommandText(mode.runner, SKILLS_MANAGER, version, ["session-notice"]);
   const hooks = sessionNoticeCommands(root);
@@ -316,9 +319,9 @@ function labels(left: Leftovers): string[] {
  * The last part of the move, and the step that finishes one a failure cut short: takes out of
  * package.json the tools runner.json pins and the scripts that ran skills-manager alone, the
  * `version` of `.claude/cloud.json` once runner.json pins agent-cloud-kit, re-pins the
- * `session-notice` hook to runner.json's skills-manager, and, without dependencies of the
- * repo's own, deletes node_modules and the lockfile. With some, the install runs at the end of
- * the run if package.json changed. A tool runner.json does not pin yet stays where it is: its
+ * `session-notice` hook to runner.json's skills-manager, and, when package.json keeps no
+ * dependency entry, deletes node_modules and the lockfile. With some left, the install runs at
+ * the end of the run if package.json changed. A tool runner.json does not pin yet stays where it is: its
  * own piece offers it again.
  * @param context - Where it runs, in runner mode.
  * At the end of the move the tools it pinned go from dependencies and devDependencies; outside
@@ -354,7 +357,7 @@ function finishMove(context: Context, moving: boolean): string[] {
   if (left.hook !== null && pinSessionNotice(root, left.hook)) context.note(ui.pieces.skillsManager.hookPinned(left.hook));
   for (const path of left.files) rmSync(join(root, path), { recursive: true, force: true });
   if (left.files.length > 0) context.note(said.removed(left.files));
-  if (ownDependencies(root).length > 0 && (moving || changed)) context.note(said.installLater(packageManager(root)));
+  if (dependencyEntries(readJson(root, "package.json")).length > 0 && (moving || changed)) context.note(said.installLater(packageManager(root)));
   return labels(left);
 }
 

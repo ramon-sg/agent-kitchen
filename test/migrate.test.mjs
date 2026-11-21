@@ -9,7 +9,7 @@
 // some, the install of its manager runs instead). A move cut short is finished by a later run: the
 // failed tools come back as their pieces' steps, and the `runner` piece offers to finish the
 // cleanup, taking out only what that run can, and in runner mode only from devDependencies and
-// never a lockfile alone.
+// never a lockfile alone, nor one while package.json keeps any dependency entry.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -287,15 +287,17 @@ test("in runner mode a lockfile and node_modules the repo uses are never offered
 test("finishing a move outside it leaves an ecosystem tool in dependencies: it is the repo's own use", () => {
   const repo = movedRepo({ private: true, dependencies: { "@ramon-sg/github-rest": "0.7.0" }, devDependencies: { "@ramon-sg/skills-manager": "1.2.0" } });
   repo.write("package-lock.json", "lock\n");
+  repo.write("node_modules/@ramon-sg/github-rest/package.json", { version: "0.7.0" });
 
   const r = repo.cli(["apply", "--yes"], env());
 
   assert.equal(r.status, 0, `${r.out}\n${r.err}`);
   assert.deepEqual(repo.read("package.json").dependencies, { "@ramon-sg/github-rest": "0.7.0" });
   assert.equal(repo.read("package.json").devDependencies, undefined);
-  // An ecosystem tool is never a dependency of the repo's own, so with the devDependency gone the lockfile goes too.
-  assert.equal(repo.exists("package-lock.json"), false);
-  assert.deepEqual(repo.npmCalls().filter((args) => args[0] === "install"), []);
+  // package.json still has a dependency, so its lockfile stays, and the install runs since package.json changed.
+  assert.ok(repo.exists("package-lock.json"));
+  assert.ok(repo.exists("node_modules"));
+  assert.equal(repo.npmCalls().filter((args) => args[0] === "install").length, 1);
 });
 
 test("the move takes the tools out of dependencies too, and then the lockfile and node_modules, with no install", () => {

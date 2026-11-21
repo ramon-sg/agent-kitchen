@@ -116,6 +116,28 @@ export function ownDependencies(root: string): string[] {
   return [...new Set([...names, ...(hasWorkspaces ? ["workspaces"] : [])])];
 }
 
+/** The fields of package.json that hold dependencies. */
+const DEPENDENCY_FIELDS = ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"];
+
+/**
+ * Every dependency entry a package.json has, ecosystem tools included, and "workspaces" if it has
+ * any: whether the repo needs its lockfile and node_modules at all.
+ * @param pkg - The package.json, or null.
+ * @param without - Entries about to go, and the fields they go from.
+ * @returns The entries, as `<field>:<name>` (and "workspaces").
+ * @example dependencyEntries({ dependencies: { react: "19.0.0" } }) // ["dependencies:react"]
+ */
+export function dependencyEntries(pkg: Record<string, unknown> | null, without: { names: string[]; fields: string[] } = { names: [], fields: [] }): string[] {
+  const entries = DEPENDENCY_FIELDS.flatMap((field) => {
+    const deps = pkg?.[field];
+    if (!isObject(deps)) return [];
+    return Object.keys(deps).filter((name) => !(without.fields.includes(field) && without.names.includes(name))).map((name) => `${field}:${name}`);
+  });
+  const workspaces = pkg?.workspaces;
+  const hasWorkspaces = Array.isArray(workspaces) ? workspaces.length > 0 : isObject(workspaces) && Array.isArray(workspaces.packages) && workspaces.packages.length > 0;
+  return hasWorkspaces ? [...entries, "workspaces"] : entries;
+}
+
 /** The lockfile of each package manager, in the order they are looked for. */
 const LOCKFILES: [string, string][] = [
   ["bun.lock", "bun"],
