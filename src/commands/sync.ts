@@ -98,8 +98,9 @@ async function statusesOf(root: string, skip: string[]): Promise<PieceStatus[]> 
   const agentsMd = skip.includes(AGENTS_MD) ? null : flowComing.then((coming) => agentsMdStatus(root, coming));
   const runner = skip.includes(RUNNER) ? null : runnerStatus(root, skip);
   const [moving, ...rest] = await Promise.all([runner, skillsManager, flow, cloud, guard, skills, agentsMd]);
-  const statuses = [moving, ...rest].flatMap((status) => status ?? []);
-  if (moving === null || moving.steps.length === 0) return statuses;
+  // In runner mode, finishing a move cut short runs last, after the tools it left without an entry.
+  const statuses = (moving?.installed === true ? [...rest, moving] : [moving, ...rest]).flatMap((status) => status ?? []);
+  if (moving === null || !moving.steps.some((step) => step.text.kind === "runner-migrate")) return statuses;
   for (const status of statuses.filter((each) => MOVED_PIECES.includes(each.name) && each.steps.length > 0)) {
     status.steps = [];
     status.state += ui.pieces.runner.movedByRunner;

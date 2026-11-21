@@ -12,6 +12,7 @@ import { commitLine } from "../dist/commit-texts.js";
 // One step of each kind; a kind added to StepText without a sample here fails the first test.
 const SAMPLES = [
   { kind: "runner-migrate", runner: "bun", tools: ["issue-flow 0.6.0", "skills-manager 1.5.1"] },
+  { kind: "runner-finish", left: ["package-lock.json"] },
   { kind: "skills-manager-create", version: "1.2.0" },
   { kind: "skills-manager-add", version: "1.2.0" },
   { kind: "skills-manager-bump", from: "1.1.0", to: "1.2.0" },

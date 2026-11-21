@@ -14,6 +14,11 @@ const list = (names: string[]): string => names.join(", ");
 /** The texts in Spanish. */
 export const es: Catalog = {
   steps: {
+    "runner-finish": ({ left }) => ({
+      menu: `Terminar el paso a .agents/runner.json: quitar ${list(left)}`,
+      doing: "Terminando el paso a .agents/runner.json…",
+      done: `Paso a .agents/runner.json terminado: sin ${list(left)}`,
+    }),
     "runner-migrate": ({ runner, tools }) => ({
       menu: `Pasar las herramientas a .agents/runner.json con el ejecutor ${runner}: ${list(tools)}`,
       doing: `Pasando las herramientas a .agents/runner.json con el ejecutor ${runner}…`,
@@ -296,6 +301,11 @@ de --pr quedan siempre en español.`,
       removed: (paths) => `borrado: ${list(paths)}`,
       installLater: (manager) => `el repo tiene dependencias propias: '${manager} install' corre al final`,
       notRun: (names) => `No corrieron: ${list(names)}.`,
+      leftovers: "; quedan restos del modo viejo",
+      leftPackage: (names) => `${list(names)} en package.json`,
+      leftVersion: (file) => `"version" en ${file}`,
+      leftHook: "el hook session-notice",
+      scriptKept: (name) => `scripts.${name} corre skills-manager sin versión junto con otros comandos; no se toca: cámbialo a mano`,
       cleanup: "la limpieza de package.json, node_modules y el lockfile",
     },
     skillsManager: {
@@ -372,6 +382,7 @@ de --pr quedan siempre en español.`,
       noRule: "falta la regla",
       noImport: "CLAUDE.md no importa AGENTS.md",
       noPackage: "sin package.json: no se agregó nada",
+      ruleSkipped: "la regla no se agregó: el repo corre sus herramientas desde .agents/runner.json y no tiene dependencias propias",
       checkNoRule: "falta la regla de versiones en AGENTS.md; corre npx agent-kitchen apply",
       checkNoImport: "CLAUDE.md no importa AGENTS.md, así que Claude Code no lo lee; corre npx agent-kitchen apply",
       checkOk: "regla de versiones en AGENTS.md",

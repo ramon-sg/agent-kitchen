@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
-import { installedRepo } from "./helpers.mjs";
+import { installedRepo, RULE } from "./helpers.mjs";
 
 // Every tool at (or past) its first version that reads runner.json, and github-rest 0.7.0.
 const LATEST = {
@@ -28,7 +28,7 @@ const TAGS = { "ramon-sg/claude-repo-guard": ["0.7.0"], "ramon-sg/agent-skills":
 function legacyRepo({ lock = "package-lock.json", dependencies, origin = false } = {}) {
   const repo = installedRepo({ flow: "0.5.1", cloud: "0.9.1", guard: "0.7.0", tags: TAGS, origin });
   repo.write("package.json", {
-    scripts: { skills: "npx skills-manager update", test: "node --test" },
+    scripts: { skills: "npx skills-manager update", both: "skills-manager check && node --test", test: "node --test" },
     ...(dependencies === undefined ? {} : { dependencies }),
     devDependencies: { "@ramon-sg/issue-flow": "0.5.1", "@ramon-sg/github-rest": "0.2.1", "@ramon-sg/skills-manager": "1.2.0" },
   });
@@ -69,6 +69,8 @@ test("apply --yes moves a legacy repo to runner.json: five versions there, no ec
   assert.equal(pkg.devDependencies, undefined, JSON.stringify(pkg));
   assert.equal(pkg.scripts.skills, undefined, "the script that ran skills-manager from node_modules is gone");
   assert.equal(pkg.scripts.test, "node --test", "the repo's own scripts stay");
+  assert.equal(pkg.scripts.both, "skills-manager check && node --test", "a script that also runs other commands stays");
+  assert.match(r.out, /scripts\.both corre skills-manager sin versión junto con otros comandos/);
   assert.ok(repo.exists(".claude/cloud.json"));
   assert.equal("version" in repo.read(".claude/cloud.json"), false);
   assert.ok(repo.exists(".claude/repo-guard.manifest.json"), "the guard's manifest stays: its uninstall reads it");
@@ -164,6 +166,62 @@ test("a tool that fails stops the move: the next ones do not run, and the output
   assert.ok(repo.exists(".agents/runner.json"));
   assert.ok(repo.exists("package-lock.json"));
   assert.equal(repo.read(".claude/cloud.json").version, "0.9.1");
+});
+
+// What a finished move leaves, as the test of a successful one checks it.
+function assertMoved(repo) {
+  assert.deepEqual(repo.read(".agents/runner.json").tools, LATEST);
+  assert.equal(repo.read("package.json").devDependencies, undefined);
+  assert.equal("version" in repo.read(".claude/cloud.json"), false);
+  assert.equal(repo.exists("package-lock.json"), false);
+  assert.equal(repo.exists("node_modules"), false);
+  const hooks = repo.read(".claude/settings.json").hooks.SessionStart.flatMap((group) => group.hooks.map((hook) => hook.command));
+  assert.ok(hooks.includes("bunx --bun @ramon-sg/skills-manager@1.5.1 session-notice"), hooks.join("\n"));
+}
+
+test("a move cut short by a failure is finished by the next apply: the failed tools run again, then the cleanup", () => {
+  const repo = legacyRepo();
+  const first = repo.cli(["apply", "--yes"], { env: { FAKE_NPM: JSON.stringify(LATEST), FAKE_FAIL: "claude-repo-guard@0.8.0 apply" } });
+  assert.equal(first.status, 1, first.out);
+  const pins = repo.read(".agents/runner.json").tools;
+  assert.equal(pins["@ramon-sg/claude-repo-guard"], undefined, "a tool whose part failed has no entry");
+  assert.equal(pins["agent-cloud-kit"], undefined);
+  assert.equal(pins["@ramon-sg/issue-flow"], "0.6.0");
+
+  const dry = repo.cli(["apply", "--dry-run"], env());
+  assert.match(dry.out, /\[x\] Terminar el paso a \.agents\/runner\.json: quitar @ramon-sg\/skills-manager, scripts\.skills en package\.json, "version" en \.claude\/cloud\.json, package-lock\.json, node_modules/);
+  const second = repo.cli(["apply", "--yes"], env());
+
+  assert.equal(second.status, 0, `${second.out}\n${second.err}`);
+  const calls = toolLog(repo).map((call) => call.text);
+  for (const call of ["@ramon-sg/claude-repo-guard@0.8.0 apply --yes", "agent-cloud-kit@1.0.0 init", "@ramon-sg/skills-manager@1.5.1 install"]) assert.ok(calls.includes(call), `${call} in ${calls.join("\n")}`);
+  assertMoved(repo);
+  assert.equal(repo.read(".agents/skills.lock.json").skills["close-pr"].tag, "v0.6.0");
+  const third = repo.cli(["apply", "--dry-run"], env());
+  assert.doesNotMatch(third.out, /Terminar el paso/);
+});
+
+test("the move never lowers github-rest: a newer exact one in package.json is kept", () => {
+  const repo = legacyRepo();
+  const pkg = repo.read("package.json");
+  pkg.devDependencies["@ramon-sg/github-rest"] = "0.8.2";
+  repo.write("package.json", pkg);
+
+  const r = repo.cli(["apply", "--yes"], env());
+
+  assert.equal(r.status, 0, `${r.out}\n${r.err}`);
+  assert.equal(repo.read(".agents/runner.json").tools["@ramon-sg/github-rest"], "0.8.2");
+});
+
+test("the rule about node_modules planned before the move is not written into a repo the move left without dependencies", () => {
+  const repo = legacyRepo();
+  repo.write("AGENTS.md", "# Repo\n");
+
+  const r = repo.cli(["apply", "--yes"], env());
+
+  assert.equal(r.status, 0, `${r.out}\n${r.err}`);
+  assert.ok(!readFileSync(join(repo.main, "AGENTS.md"), "utf8").includes(RULE));
+  assert.match(r.out, /la regla no se agregó/);
 });
 
 test("--pr commits runner.json, package.json and the deleted lockfile", () => {

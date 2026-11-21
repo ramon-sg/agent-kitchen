@@ -9,32 +9,36 @@
  *
  * The step, in this order, stopping at the first part that fails (nothing is undone):
  * 1. Writes runner.json with the runner (`chooseRunner`: Bun if it is installed, else Node) and
- *    each installed tool at its latest, before any tool runs: the guard stays in legacy mode
- *    in a repo with its manifest and no runner.json.
+ *    github-rest (never lowered), before any tool runs: the guard stays in legacy mode in a repo
+ *    with its manifest and no runner.json. Each tool gets its entry only when its part works.
  * 2. issue-flow's `apply` at its latest (which drops it and github-rest from package.json and
  *    rewrites its hooks and shortcuts), and github-rest rises as after any `apply`.
  * 3. claude-repo-guard's `apply` from npm. Its manifest stays: its uninstall reads it.
- * 4. agent-cloud-kit's `init`, and then the `version` of `.claude/cloud.json` goes (the file stays).
- * 5. skills-manager at its latest (its install, its entry, its `session-notice` hook); then
- *    agent-kitchen drops it (and github-rest, if still there) from package.json, with the
- *    scripts that ran it from node_modules, and moves the flow's skills to the flow's new tag.
- * 6. With dependencies of its own left, the repo's install runs at the end of the run, as after
- *    any step that changes package.json; without any, node_modules and the lockfile go.
- *    package.json stays: it has the shortcuts.
+ * 4. agent-cloud-kit's `init`.
+ * 5. skills-manager at its latest (its install, its entry, its `session-notice` hook), and the
+ *    flow's skills to the flow's new tag.
+ * 6. The cleanup (`finishMove`): the pinned tools out of package.json, with the scripts that
+ *    were only a skills-manager command; `version` out of `.claude/cloud.json` (the file stays);
+ *    without dependencies of the repo's own, node_modules and the lockfile go; with some, the
+ *    repo's install runs at the end of the run. package.json stays: it has the shortcuts.
+ *
+ * A move cut short leaves a repo in runner mode where the tools that failed have no entry: their
+ * own pieces offer them again at their latest, and this piece offers a step that finishes the
+ * cleanup, which runs after theirs.
  */
 import { existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { checkRunner, chooseRunner, RUNNER_FILE, type Runner, writeRunnerConfig } from "@ramon-sg/runner";
+import { checkRunner, chooseRunner, RUNNER_FILE, type Runner, toolCommandText, writeRunnerConfig } from "@ramon-sg/runner";
 import { KitError } from "../output.js";
 import { type Check, type Context, FLOW_PACKAGE, type PieceStatus, SKILLS_MANAGER, SKILLS_MANIFEST, type Step } from "../piece.js";
-import { dependencyVersion, editPackage, isObject, lockfiles, ownDependencies, packageManager, readJson, writeJson } from "../repo.js";
+import { dependencyVersion, ECOSYSTEM_TOOLS, editPackage, isObject, lockfiles, ownDependencies, packageManager, readJson, writeJson } from "../repo.js";
 import { CLOUD_CONFIG, CLOUD_PACKAGE, GITHUB_REST, GUARD_MANIFEST, GUARD_PACKAGE, RUNNER_MINIMUMS, runnerLatest, toolVersion } from "../runner-mode.js";
 import { ui } from "../texts/index.js";
-import { compareSemver, isExactVersion, npmLatest, repoMode } from "../tools.js";
+import { compareSemver, isExactVersion, npmLatest, raiseTool, repoMode } from "../tools.js";
 import { init as initCloud, moveConfig, NAME as CLOUD } from "./cloud.js";
 import { install as installGuard, NAME as GUARD } from "./guard.js";
 import { applyFlow, moveSkills, NAME as FLOW } from "./issue-flow.js";
-import { NAME as SKILLS_MANAGER_PIECE, updateInRunner } from "./skills-manager.js";
+import { NAME as SKILLS_MANAGER_PIECE, pinSessionNotice, sessionNoticeCommands, updateInRunner } from "./skills-manager.js";
 
 /** The piece's name, as `--skip` takes it. */
 export const NAME = "runner";
@@ -50,8 +54,11 @@ const ORDER: [pkg: string, piece: string][] = [
 /** The pieces whose steps the move takes over while it is offered. */
 export const MOVED_PIECES = ORDER.map(([, piece]) => piece);
 
-/** A script that runs skills-manager unpinned, from node_modules or through npx. */
-const SKILLS_SCRIPT = /^(?:npx\s+(?:(?:--yes|-y)\s+)?)?(?:@ramon-sg\/)?skills-manager(?:\s|$)/;
+/** A script that is only a skills-manager command, unpinned, from node_modules or through npx. */
+const SKILLS_SCRIPT = /^(?:npx\s+(?:(?:--yes|-y)\s+)?)?(?:@ramon-sg\/)?skills-manager(?:\s+[^&|;<>()`$]*)?$/;
+
+/** A script that runs skills-manager unpinned anywhere in it. */
+const SKILLS_RUN = /(?:^|[\s&|;(])(?:npx\s+(?:(?:--yes|-y)\s+)?)?(?:@ramon-sg\/)?skills-manager(?:\s|$|[;&|)])/;
 
 /**
  * The tools a legacy repo has, where a legacy repo keeps them.
@@ -83,6 +90,20 @@ async function targetOf(root: string, pkg: string): Promise<string | null> {
 }
 
 /**
+ * The github-rest runner.json starts with, when the repo has it or the flow: the newer of the
+ * exact one package.json has and npm's latest, so the move never lowers it.
+ * @param root - The repo, in legacy mode.
+ * @param tools - The installed tools.
+ * @returns The version, or null if there is none to seed (issue-flow's apply seeds its own).
+ */
+async function restSeed(root: string, tools: string[]): Promise<string | null> {
+  const own = dependencyVersion(readJson(root, "package.json"), GITHUB_REST);
+  if (own === null && !tools.includes(FLOW_PACKAGE)) return null;
+  const known = [own !== null && isExactVersion(own) ? own : null, await npmLatest(GITHUB_REST)].filter((each): each is string => each !== null);
+  return known.sort(compareSemver).at(-1) ?? null;
+}
+
+/**
  * The piece of a package, as the step names it.
  * @param pkg - The package.
  * @returns The piece's name.
@@ -103,7 +124,12 @@ export async function runnerStatus(root: string, skip: string[]): Promise<PieceS
   const said = ui.pieces.runner;
   const base = { name: NAME, summary: said.summary };
   const mode = repoMode(root);
-  if (mode.kind === "runner") return { ...base, installed: true, state: said.inRunner(mode.runner), steps: [] };
+  if (mode.kind === "runner") {
+    const left = labels(leftovers(root, false));
+    if (left.length === 0) return { ...base, installed: true, state: said.inRunner(mode.runner), steps: [] };
+    const finish: Step = { piece: NAME, checked: true, downloads: [], text: { kind: "runner-finish", left }, run: (context) => Promise.resolve(finishMove(context, false)) };
+    return { ...base, installed: true, state: `${said.inRunner(mode.runner)}${said.leftovers}`, steps: [finish] };
+  }
   const tools = installedTools(root);
   if (tools.length === 0) return null;
   const legacy = { ...base, installed: false, steps: [] };
@@ -111,8 +137,7 @@ export async function runnerStatus(root: string, skip: string[]): Promise<PieceS
   if (flow !== null && !isExactVersion(flow)) return { ...legacy, state: said.notExact(flow) };
   const leftOut = tools.map(pieceOf).filter((piece) => skip.includes(piece));
   if (leftOut.length > 0) return { ...legacy, state: said.leftOut(leftOut) };
-  const rest = dependencyVersion(readJson(root, "package.json"), GITHUB_REST) !== null;
-  const [found, restTarget] = await Promise.all([Promise.all(tools.map((pkg) => targetOf(root, pkg))), rest ? npmLatest(GITHUB_REST) : Promise.resolve(null)]);
+  const [found, restTarget] = await Promise.all([Promise.all(tools.map((pkg) => targetOf(root, pkg))), restSeed(root, tools)]);
   if (found.some((version) => version === null)) return { ...legacy, state: `${said.legacy}${ui.pieces.common.npmDown}` };
   const targets = new Map(tools.map((pkg, index) => [pkg, found[index] as string]));
   const missing = tools.filter((pkg) => compareSemver(targets.get(pkg) as string, RUNNER_MINIMUMS[pkg] as string) < 0);
@@ -152,25 +177,27 @@ async function attempt(context: Context, part: () => Promise<boolean>): Promise<
  * @param runner - The runner to write.
  * @param warning - What to say about it, if anything (Node because Bun is missing).
  * @param targets - Each installed tool's version.
- * @param rest - github-rest's latest, if package.json has it, or null.
+ * @param rest - The github-rest to seed, or null.
  * @returns Whether every part worked.
  */
 async function migrate(context: Context, runner: Runner, warning: string | null, targets: Map<string, string>, rest: string | null): Promise<boolean> {
   const said = ui.pieces.runner;
   if (warning !== null) context.note(warning);
-  const tools = Object.fromEntries([...targets, ...(rest === null ? [] : [[GITHUB_REST, rest] as const])]);
-  writeRunnerConfig(context.root, { runner, tools, extra: {} });
+  // Only the runner and github-rest: each tool gets its entry when its part works, so one that
+  // fails has none, and the next run offers it again in runner mode.
+  writeRunnerConfig(context.root, { runner, tools: rest === null ? {} : { [GITHUB_REST]: rest }, extra: {} });
   context.note(said.written(RUNNER_FILE, runner));
   const flow = targets.get(FLOW_PACKAGE);
   const guard = targets.get(GUARD_PACKAGE);
   const cloud = targets.get(CLOUD_PACKAGE);
   const skillsManager = targets.get(SKILLS_MANAGER);
-  const parts: [string, () => Promise<boolean>][] = [
-    ...(flow === undefined ? [] : [[FLOW, () => applyFlow(context, flow)] as [string, () => Promise<boolean>]]),
-    ...(guard === undefined ? [] : [[GUARD, () => installGuard(context, guard)] as [string, () => Promise<boolean>]]),
-    ...(cloud === undefined ? [] : [[CLOUD, () => moveCloud(context, cloud)] as [string, () => Promise<boolean>]]),
-    ...(skillsManager === undefined ? [] : [[SKILLS_MANAGER_PIECE, () => moveSkillsManager(context, skillsManager, flow ?? null)] as [string, () => Promise<boolean>]]),
-    [said.cleanup, () => Promise.resolve(cleanUp(context))],
+  type Part = [string, () => Promise<boolean>];
+  const parts: Part[] = [
+    ...(flow === undefined ? [] : [[FLOW, () => pinned(context, FLOW_PACKAGE, flow, applyFlow(context, flow))] as Part]),
+    ...(guard === undefined ? [] : [[GUARD, () => pinned(context, GUARD_PACKAGE, guard, installGuard(context, guard))] as Part]),
+    ...(cloud === undefined ? [] : [[CLOUD, () => moveCloud(context, cloud)] as Part]),
+    ...(skillsManager === undefined ? [] : [[SKILLS_MANAGER_PIECE, async () => (await updateInRunner(context, skillsManager)) && (flow === undefined || moveSkills(context, flow))] as Part]),
+    [said.cleanup, () => Promise.resolve(finishMove(context, true))],
   ];
   for (const [index, [, part]] of parts.entries()) {
     if (await attempt(context, part)) continue;
@@ -182,72 +209,127 @@ async function migrate(context: Context, runner: Runner, warning: string | null,
 }
 
 /**
- * agent-cloud-kit's `init` at its new version, and then its `version` out of `.claude/cloud.json`,
- * which `init` never removes and runner.json replaces. A `$schema` pinned to a version follows it.
+ * Pins a tool in runner.json once its part worked, in case the tool did not write its entry.
  * @param context - Where it runs, in runner mode.
- * @param version - The version.
- * @returns Whether `init` worked.
+ * @param pkg - The tool.
+ * @param version - Its version.
+ * @param part - The part that runs it.
+ * @returns Whether the part worked.
  */
-async function moveCloud(context: Context, version: string): Promise<boolean> {
-  moveConfig(context.root, version, false);
-  if (!(await initCloud(context, version))) return false;
-  const config = readJson(context.root, CLOUD_CONFIG);
-  if (config === null || !("version" in config)) return true;
-  const { version: _gone, ...rest } = config;
-  writeJson(context.root, CLOUD_CONFIG, rest);
-  context.note(ui.pieces.runner.versionRemoved(CLOUD_CONFIG));
+async function pinned(context: Context, pkg: string, version: string, part: Promise<boolean>): Promise<boolean> {
+  if (!(await part)) return false;
+  raiseTool(context.root, pkg, version);
   return true;
 }
 
 /**
- * skills-manager at its new version; then out of package.json, with github-rest if still there
- * and the scripts that ran it unpinned; then the flow's skills to the flow's new tag.
+ * agent-cloud-kit's `init` at its new version (a `$schema` pinned to a version follows it), and
+ * its entry in runner.json. Its `version` in `.claude/cloud.json` goes in the cleanup.
  * @param context - Where it runs, in runner mode.
- * @param version - skills-manager's version.
- * @param flow - The flow's new version, or null if the repo has no flow.
- * @returns Whether it worked.
+ * @param version - The version.
+ * @returns Whether `init` worked.
  */
-async function moveSkillsManager(context: Context, version: string, flow: string | null): Promise<boolean> {
-  if (!(await updateInRunner(context, version))) return false;
-  const removed: string[] = [];
-  editPackage(context.root, (pkg) => {
+function moveCloud(context: Context, version: string): Promise<boolean> {
+  moveConfig(context.root, version, false);
+  return pinned(context, CLOUD_PACKAGE, version, initCloud(context, version));
+}
+
+/** What a legacy repo leaves once its tools are in runner.json. */
+interface Leftovers {
+  /** Ecosystem tools in dependencies or devDependencies. */
+  deps: string[];
+  /** Scripts that are only a skills-manager command, run from node_modules or through npx. */
+  scripts: string[];
+  /** Scripts that run skills-manager unpinned among other commands: left, with a note. */
+  mixed: string[];
+  /** Whether `.claude/cloud.json` still has `version`. */
+  cloudVersion: boolean;
+  /** Lockfiles and node_modules, when the repo has no dependencies of its own. */
+  files: string[];
+  /** The `session-notice` command to pin, if its hook is not at runner.json's skills-manager. */
+  hook: string | null;
+}
+
+/**
+ * What the legacy repo left behind, in a repo in runner mode.
+ * @param root - The repo, in runner mode.
+ * @param pinnedOnly - Only the tools runner.json pins: the ones the cleanup may take out.
+ * @returns The leftovers.
+ */
+function leftovers(root: string, pinnedOnly: boolean): Leftovers {
+  const mode = repoMode(root);
+  const tools = mode.kind === "runner" ? mode.tools : {};
+  const pkg = readJson(root, "package.json");
+  const deps = ECOSYSTEM_TOOLS.filter((name) => dependencyVersion(pkg, name) !== null && (!pinnedOnly || tools[name] !== undefined));
+  const scripts = isObject(pkg?.scripts) ? Object.entries(pkg.scripts).filter(([, command]) => typeof command === "string" && SKILLS_RUN.test(command)) : [];
+  const ownsScripts = !pinnedOnly || tools[SKILLS_MANAGER] !== undefined;
+  const cloudVersion = (!pinnedOnly || tools[CLOUD_PACKAGE] !== undefined) && readJson(root, CLOUD_CONFIG)?.version !== undefined;
+  const files = ownDependencies(root).length > 0 ? [] : [...lockfiles(root), ...(existsSync(join(root, "node_modules")) ? ["node_modules"] : [])];
+  const version = tools[SKILLS_MANAGER];
+  const command = version === undefined || mode.kind !== "runner" ? null : toolCommandText(mode.runner, SKILLS_MANAGER, version, ["session-notice"]);
+  const hooks = sessionNoticeCommands(root);
+  const hook = command !== null && hooks.length > 0 && hooks.some((each) => each !== command) ? command : null;
+  return {
+    deps,
+    scripts: ownsScripts ? scripts.filter(([, command]) => SKILLS_SCRIPT.test(String(command).trim())).map(([name]) => name) : [],
+    mixed: ownsScripts ? scripts.filter(([, command]) => !SKILLS_SCRIPT.test(String(command).trim())).map(([name]) => name) : [],
+    cloudVersion,
+    files,
+    hook,
+  };
+}
+
+/**
+ * The leftovers as the step names them; none if there is nothing to clean.
+ * @param left - The leftovers.
+ * @returns Short labels.
+ */
+function labels(left: Leftovers): string[] {
+  const said = ui.pieces.runner;
+  const inPackage = [...left.deps, ...left.scripts.map((name) => `scripts.${name}`)];
+  return [...(inPackage.length > 0 ? [said.leftPackage(inPackage)] : []), ...(left.cloudVersion ? [said.leftVersion(CLOUD_CONFIG)] : []), ...left.files, ...(left.hook === null ? [] : [said.leftHook])];
+}
+
+/**
+ * The last part of the move, and the step that finishes one a failure cut short: takes out of
+ * package.json the tools runner.json pins and the scripts that ran skills-manager alone, the
+ * `version` of `.claude/cloud.json` once runner.json pins agent-cloud-kit, re-pins the
+ * `session-notice` hook to runner.json's skills-manager, and, without dependencies of the
+ * repo's own, deletes node_modules and the lockfile. With some, the install runs at the end of
+ * the run if package.json changed. A tool runner.json does not pin yet stays where it is: its
+ * own piece offers it again.
+ * @param context - Where it runs, in runner mode.
+ * @param moving - Whether it is the end of the move, which always changed package.json.
+ * @returns True.
+ */
+function finishMove(context: Context, moving: boolean): boolean {
+  const said = ui.pieces.runner;
+  const { root } = context;
+  const left = leftovers(root, true);
+  const changed = editPackage(root, (pkg) => {
     for (const field of ["dependencies", "devDependencies"]) {
       const deps = pkg[field];
       if (!isObject(deps)) continue;
-      for (const name of [SKILLS_MANAGER, GITHUB_REST]) {
-        if (!(name in deps)) continue;
-        delete deps[name];
-        removed.push(name);
-      }
+      for (const name of left.deps) delete deps[name];
       if (Object.keys(deps).length === 0) delete pkg[field];
     }
     const scripts = pkg.scripts;
     if (!isObject(scripts)) return;
-    for (const [name, command] of Object.entries(scripts)) {
-      if (typeof command !== "string" || !SKILLS_SCRIPT.test(command.trim())) continue;
-      delete scripts[name];
-      removed.push(`scripts.${name}`);
-    }
+    for (const name of left.scripts) delete scripts[name];
     if (Object.keys(scripts).length === 0) delete pkg.scripts;
   });
-  if (removed.length > 0) context.note(ui.pieces.runner.cleaned(removed));
-  return flow === null || moveSkills(context, flow);
-}
-
-/**
- * Leaves the repo's install for the end of the run if it has dependencies of its own; else
- * deletes node_modules and the lockfile, which only held the tools.
- * @param context - Where it runs.
- * @returns True.
- */
-function cleanUp(context: Context): boolean {
-  if (ownDependencies(context.root).length > 0) {
-    context.note(ui.pieces.runner.installLater(packageManager(context.root)));
-    return true;
+  const removed = [...left.deps, ...left.scripts.map((name) => `scripts.${name}`)];
+  if (removed.length > 0) context.note(said.cleaned(removed));
+  for (const name of left.mixed) context.note(said.scriptKept(name));
+  if (left.cloudVersion) {
+    const { version: _gone, ...config } = readJson(root, CLOUD_CONFIG) ?? {};
+    writeJson(root, CLOUD_CONFIG, config);
+    context.note(said.versionRemoved(CLOUD_CONFIG));
   }
-  const gone = [...lockfiles(context.root), ...(existsSync(join(context.root, "node_modules")) ? ["node_modules"] : [])];
-  for (const path of gone) rmSync(join(context.root, path), { recursive: true, force: true });
-  if (gone.length > 0) context.note(ui.pieces.runner.removed(gone));
+  if (left.hook !== null && pinSessionNotice(root, left.hook)) context.note(ui.pieces.skillsManager.hookPinned(left.hook));
+  for (const path of left.files) rmSync(join(root, path), { recursive: true, force: true });
+  if (left.files.length > 0) context.note(said.removed(left.files));
+  if (ownDependencies(root).length > 0 && (moving || changed)) context.note(said.installLater(packageManager(root)));
   return true;
 }
 

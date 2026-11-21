@@ -88,7 +88,8 @@ test("in runner mode apply --yes updates each piece with bunx --bun at its lates
     "@ramon-sg/skills-manager": "1.5.1",
     "agent-cloud-kit": "1.0.1",
   });
-  assert.equal(repo.read(".claude/cloud.json").version, "0.9.0", "agent-kitchen does not write cloud.json's version in runner mode");
+  // The fixture's cloud.json version is a legacy leftover: the runner piece's finishing step takes it out, and nothing writes a new one.
+  assert.equal("version" in repo.read(".claude/cloud.json"), false, "agent-kitchen does not write cloud.json's version in runner mode");
   assert.match(r.out, /bunx --bun agent-cloud-kit@1\.0\.1 prepare/);
 });
 

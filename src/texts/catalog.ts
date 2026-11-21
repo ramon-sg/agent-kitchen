@@ -219,6 +219,16 @@ export interface Catalog {
       installLater: (manager: string) => string;
       /** What did not run after a part of the move failed. */
       notRun: (names: string[]) => string;
+      /** Added to a runner-mode state with leftovers of the legacy mode. */
+      leftovers: string;
+      /** Leftovers in package.json: tools and scripts. */
+      leftPackage: (names: string[]) => string;
+      /** A `version` key left in a file. */
+      leftVersion: (file: string) => string;
+      /** The session-notice hook not at runner.json's skills-manager. */
+      leftHook: string;
+      /** A script that runs skills-manager unpinned among other commands, left as it is. */
+      scriptKept: (name: string) => string;
       /** The cleanup, among what did not run. */
       cleanup: string;
     };
@@ -302,6 +312,8 @@ export interface Catalog {
       noRule: string;
       noImport: string;
       noPackage: string;
+      /** The rule left out at run time: the repo moved to runner.json and has no dependencies of its own. */
+      ruleSkipped: string;
       checkNoRule: string;
       checkNoImport: string;
       checkOk: string;

@@ -72,6 +72,19 @@ const SETTINGS = ".claude/settings.json";
 const SESSION_NOTICE = /skills-manager(@\S+)?\s+session-notice/;
 
 /**
+ * The commands of the repo's `SessionStart` hooks that run `session-notice`.
+ * @param root - The repo.
+ * @returns The commands, in any form they were written.
+ * @example sessionNoticeCommands(root) // ["npx @ramon-sg/skills-manager session-notice"]
+ */
+export function sessionNoticeCommands(root: string): string[] {
+  const hooks = readJson(root, SETTINGS)?.hooks;
+  const groups: unknown[] = isObject(hooks) && Array.isArray(hooks.SessionStart) ? hooks.SessionStart : [];
+  return groups.flatMap((group) => (isObject(group) && Array.isArray(group.hooks) ? group.hooks : []))
+    .flatMap((hook: unknown) => (isObject(hook) && typeof hook.command === "string" && SESSION_NOTICE.test(hook.command) ? [hook.command] : []));
+}
+
+/**
  * Writes the `SessionStart` hook of `session-notice` with a command, or re-pins the one the
  * repo has; the other hooks stay as they are.
  * @param root - The repo.

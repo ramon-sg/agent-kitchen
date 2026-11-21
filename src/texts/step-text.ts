@@ -11,6 +11,7 @@ type MaybeVersion = string | null;
 /** What a step does, one kind per thing a piece can offer. */
 export type StepText =
   | { kind: "runner-migrate"; runner: string; tools: string[] }
+  | { kind: "runner-finish"; left: string[] }
   | { kind: "skills-manager-create"; version: string }
   | { kind: "skills-manager-add"; version: string }
   | { kind: "skills-manager-bump"; from: string; to: string }

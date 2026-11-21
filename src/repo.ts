@@ -97,7 +97,7 @@ export function dependencyVersion(pkg: Record<string, unknown> | null, name: str
 }
 
 /** The tools of the ecosystem: dependencies of a repo that only run them, not code of its own. */
-const ECOSYSTEM_TOOLS = ["@ramon-sg/issue-flow", "@ramon-sg/github-rest", "@ramon-sg/skills-manager", "@ramon-sg/claude-repo-guard", "agent-cloud-kit"];
+export const ECOSYSTEM_TOOLS = ["@ramon-sg/issue-flow", "@ramon-sg/github-rest", "@ramon-sg/skills-manager", "@ramon-sg/claude-repo-guard", "agent-cloud-kit"];
 
 /**
  * The names in `dependencies` and `devDependencies` of package.json that are not tools of the
