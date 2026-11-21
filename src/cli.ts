@@ -8,6 +8,7 @@
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { parseArgs } from "node:util";
+import { toolCommand } from "@ramon-sg/runner";
 import { show } from "./banner.js";
 import { doctor } from "./commands/doctor.js";
 import { pieceNames, sync } from "./commands/sync.js";
@@ -45,7 +46,7 @@ function startLookups(): void {
 }
 
 /**
- * Runs the latest agent-kitchen with the same arguments, if npm has one newer than this.
+ * Runs the latest agent-kitchen with the same arguments and the runtime this one runs on (bunx under Bun, npx under Node), if npm has one newer than this.
  * @param argv - The arguments.
  * @returns Its exit code, or null if this one is the latest or npm cannot tell.
  */
@@ -55,7 +56,9 @@ async function handOver(argv: string[]): Promise<number | null> {
   const latest = await npmLatest(PACKAGE);
   if (latest === null || compareVersions(latest, own) <= 0) return null;
   process.stderr.write(`${ui.cli.handOver(latest, own)}\n`);
-  const result = spawnSync("npx", ["--yes", `${PACKAGE}@${latest}`, ...argv], { stdio: "inherit", env: { ...process.env, [HANDED_OVER]: own } });
+  const runner = process.versions.bun !== undefined ? "bun" : "node";
+  const command = toolCommand(runner, PACKAGE, latest, argv);
+  const result = spawnSync(command.file, command.args, { stdio: "inherit", env: { ...process.env, [HANDED_OVER]: own } });
   return result.status ?? 1;
 }
 

@@ -117,11 +117,11 @@ export function makeRepo({ tags = { "ramon-sg/claude-repo-guard": ["0.1.0", "0.2
     main,
     git: (...args) => git(main, ...args),
     // Runs the CLI with no terminal; the log of calls starts empty.
-    cli(args, { env: extra = {}, cwd = main } = {}) {
+    cli(args, { env: extra = {}, cwd = main, runtime = process.execPath } = {}) {
       writeFileSync(log, "");
       const full = env(extra);
       serve(full);
-      const result = spawnSync(process.execPath, [CLI, ...args], { cwd, encoding: "utf8", env: full });
+      const result = spawnSync(runtime, [CLI, ...args], { cwd, encoding: "utf8", env: full });
       return { status: result.status, out: result.stdout, err: result.stderr };
     },
     // The npx and bunx calls of the last run, without `--yes` or `--bun`, nor the downloads
