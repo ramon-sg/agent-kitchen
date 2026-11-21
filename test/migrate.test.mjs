@@ -1,10 +1,15 @@
-// Moving a legacy repo (its tools in devDependencies, `.claude/cloud.json` and the guard's
-// manifest, no `.agents/runner.json`) to runner.json: one step, `runner`, offered only when the
-// latest version of every installed tool already reads runner.json. It writes runner.json first,
-// then runs each tool at its latest in a fixed order (issue-flow, claude-repo-guard,
-// agent-cloud-kit, skills-manager), and cleans up what the tools leave: skills-manager in
-// devDependencies, the `version` of cloud.json, and node_modules and the lockfile when the repo
-// has no dependencies of its own (with some, the install of its manager runs instead).
+// Moving a legacy repo (its tools in dependencies or devDependencies, `.claude/cloud.json` and the
+// guard's manifest, no `.agents/runner.json`) to runner.json: one step, `runner`, offered only when
+// the latest version of every installed tool already reads runner.json, and never with a tool the
+// run leaves out. It writes runner.json first (runner and github-rest only), then runs each tool at
+// its latest in a fixed order (issue-flow, claude-repo-guard, agent-cloud-kit, skills-manager),
+// each one pinned only once it worked, and cleans up what the tools leave: the tools it pinned in
+// dependencies and devDependencies, the scripts that were only skills-manager, the `version` of
+// cloud.json, and node_modules and the lockfile when the repo has no dependencies of its own (with
+// some, the install of its manager runs instead). A move cut short is finished by a later run: the
+// failed tools come back as their pieces' steps, and the `runner` piece offers to finish the
+// cleanup, taking out only what that run can, and in runner mode only from devDependencies and
+// never a lockfile alone.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -279,7 +284,7 @@ test("in runner mode a lockfile and node_modules the repo uses are never offered
   assert.doesNotMatch(b.out, /Terminar el paso/);
 });
 
-test("finishing a move leaves an ecosystem tool in dependencies: it is the repo's own use", () => {
+test("finishing a move outside it leaves an ecosystem tool in dependencies: it is the repo's own use", () => {
   const repo = movedRepo({ private: true, dependencies: { "@ramon-sg/github-rest": "0.7.0" }, devDependencies: { "@ramon-sg/skills-manager": "1.2.0" } });
   repo.write("package-lock.json", "lock\n");
 
@@ -288,7 +293,26 @@ test("finishing a move leaves an ecosystem tool in dependencies: it is the repo'
   assert.equal(r.status, 0, `${r.out}\n${r.err}`);
   assert.deepEqual(repo.read("package.json").dependencies, { "@ramon-sg/github-rest": "0.7.0" });
   assert.equal(repo.read("package.json").devDependencies, undefined);
-  assert.ok(repo.exists("package-lock.json"), "the repo installs github-rest from it");
+  // An ecosystem tool is never a dependency of the repo's own, so with the devDependency gone the lockfile goes too.
+  assert.equal(repo.exists("package-lock.json"), false);
+  assert.deepEqual(repo.npmCalls().filter((args) => args[0] === "install"), []);
+});
+
+test("the move takes the tools out of dependencies too, and then the lockfile and node_modules, with no install", () => {
+  const repo = legacyRepo();
+  const pkg = repo.read("package.json");
+  repo.write("package.json", { scripts: pkg.scripts, dependencies: pkg.devDependencies });
+
+  const r = repo.cli(["apply", "--yes"], env());
+
+  assert.equal(r.status, 0, `${r.out}\n${r.err}`);
+  const after = repo.read("package.json");
+  assert.equal(after.dependencies, undefined, JSON.stringify(after));
+  assert.equal(after.devDependencies, undefined, JSON.stringify(after));
+  assert.deepEqual(repo.read(".agents/runner.json").tools, LATEST);
+  assert.equal(repo.exists("package-lock.json"), false);
+  assert.equal(repo.exists("node_modules"), false);
+  assert.deepEqual(repo.npmCalls().filter((args) => args[0] === "install"), []);
 });
 
 test("--pr commits runner.json, package.json and the deleted lockfile", () => {

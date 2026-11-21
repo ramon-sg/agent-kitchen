@@ -252,7 +252,7 @@ function moveCloud(context: Context, version: string): Promise<boolean> {
 
 /** What a legacy repo leaves once its tools are in runner.json. */
 interface Leftovers {
-  /** Ecosystem tools in devDependencies (one in dependencies is the repo's own use). */
+  /** Ecosystem tools in devDependencies, and also in dependencies at the end of the move (outside it, one there is the repo's own use). */
   deps: string[];
   /** Scripts that are only a skills-manager command, run from node_modules or through npx. */
   scripts: string[];
@@ -280,8 +280,8 @@ function leftovers(root: string, can: (pkg: string) => boolean, moving: boolean)
   const mode = repoMode(root);
   const tools = mode.kind === "runner" ? mode.tools : {};
   const pkg = readJson(root, "package.json");
-  const dev = isObject(pkg?.devDependencies) ? pkg.devDependencies : {};
-  const deps = ECOSYSTEM_TOOLS.filter((name) => name in dev && can(name));
+  const fields = (moving ? ["dependencies", "devDependencies"] : ["devDependencies"]).map((field) => (isObject(pkg?.[field]) ? pkg[field] : {}));
+  const deps = ECOSYSTEM_TOOLS.filter((name) => fields.some((field) => name in field) && can(name));
   const scripts = isObject(pkg?.scripts) ? Object.entries(pkg.scripts).filter(([, command]) => typeof command === "string" && SKILLS_RUN.test(command)) : [];
   const ownsScripts = can(SKILLS_MANAGER);
   const cloudVersion = can(CLOUD_PACKAGE) && readJson(root, CLOUD_CONFIG)?.version !== undefined;
@@ -321,7 +321,8 @@ function labels(left: Leftovers): string[] {
  * the run if package.json changed. A tool runner.json does not pin yet stays where it is: its
  * own piece offers it again.
  * @param context - Where it runs, in runner mode.
- * Only ecosystem tools in devDependencies go: one in dependencies is the repo's own use.
+ * At the end of the move the tools it pinned go from dependencies and devDependencies; outside
+ * it, only from devDependencies: one in dependencies is then the repo's own use.
  * @param moving - Whether it is the end of the move, which always changed package.json.
  * @returns What it took out, as the step names it.
  */
@@ -331,10 +332,11 @@ function finishMove(context: Context, moving: boolean): string[] {
   const pins = repoMode(root);
   const left = leftovers(root, (pkg) => pins.kind === "runner" && pins.tools[pkg] !== undefined, moving);
   const changed = editPackage(root, (pkg) => {
-    const deps = pkg.devDependencies;
-    if (isObject(deps)) {
+    for (const field of moving ? ["dependencies", "devDependencies"] : ["devDependencies"]) {
+      const deps = pkg[field];
+      if (!isObject(deps)) continue;
       for (const name of left.deps) delete deps[name];
-      if (Object.keys(deps).length === 0) delete pkg.devDependencies;
+      if (Object.keys(deps).length === 0) delete pkg[field];
     }
     const scripts = pkg.scripts;
     if (!isObject(scripts)) return;
