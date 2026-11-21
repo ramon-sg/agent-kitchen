@@ -96,7 +96,7 @@ function catalogOf(id: string): string {
  */
 async function readCandidates(root: string, flow: string | null): Promise<Candidate[] | null> {
   const command = readJson(root, SKILLS_MANIFEST) === null ? "init" : "add";
-  const result = await captureTool(root, [skillsManagerSpec(root), command, "--candidates", ...catalogArgs(flow)], true);
+  const result = await captureTool(root, [await skillsManagerSpec(root), command, "--candidates", ...catalogArgs(flow)], true);
   let found: unknown;
   try {
     found = JSON.parse(result?.out ?? "");
@@ -145,7 +145,7 @@ async function install(context: Context, pick: SkillPick): Promise<boolean> {
     context.note(ui.pieces.skills.none);
     return true;
   }
-  const spec = skillsManagerSpec(context.root);
+  const spec = await skillsManagerSpec(context.root);
   const command = readJson(context.root, SKILLS_MANIFEST) === null ? "init" : "add";
   const args = [spec, command, ...catalogArgs(flow), "--select", picked.join(","), ...(pick.replace.length === 0 ? [] : ["--replace", pick.replace.join(",")])];
   const run = await runTool(context.root, args);
@@ -177,7 +177,7 @@ async function updateStep(root: string, catalog: string, ref: string | null): Pr
   return {
     piece: NAME,
     checked: true,
-    downloads: [skillsManagerSpec(root)],
+    downloads: [await skillsManagerSpec(root)],
     text: { kind: "skills-update", catalog, from, to: latest, names: behind.map((skill) => skill.name) },
     run: async (context) => {
       if (ref !== null) pinCatalog(context.root, catalog, `v${latest}`);
@@ -231,7 +231,7 @@ export async function skillsStatus(root: string, withFlow: boolean): Promise<Pie
   const fresh = (candidates ?? []).filter((candidate) => locked[candidate.name] === undefined);
   if (fresh.length > 0) {
     const skills: SkillPick = { candidates: fresh, picked: [], replace: [] };
-    steps.push({ piece: NAME, checked: false, downloads: [skillsManagerSpec(root)], text: { kind: "skills-add", names: fresh.map((candidate) => candidate.name) }, skills, run: (context) => install(context, skills) });
+    steps.push({ piece: NAME, checked: false, downloads: [await skillsManagerSpec(root)], text: { kind: "skills-add", names: fresh.map((candidate) => candidate.name) }, skills, run: (context) => install(context, skills) });
   }
   const count = manifestCatalogs(root).reduce((total, source) => total + catalogSkills(root, source.catalog).length, 0);
   const behind = steps.filter((step) => step.checked).length;
@@ -247,7 +247,7 @@ export async function skillsStatus(root: string, withFlow: boolean): Promise<Pie
  */
 export async function skillsChecks(root: string): Promise<Check[]> {
   if (readJson(root, SKILLS_MANIFEST) === null) return [{ name: NAME, status: "info", detail: ui.pieces.skills.notInstalled }];
-  const spec = skillsManagerSpec(root);
+  const spec = await skillsManagerSpec(root);
   const result = await captureTool(root, [spec, "check"]);
   if (result?.status === 0) return [{ name: NAME, status: "ok", detail: ui.pieces.skills.checkOk }];
   return [{ name: NAME, status: "fail", detail: ui.pieces.skills.checkFailed(toolText(root, [spec, "check"])) }];

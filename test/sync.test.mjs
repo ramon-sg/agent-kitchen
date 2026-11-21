@@ -256,7 +256,7 @@ test("without the issue flow, the guard is not told about it and the skills come
   assert.equal(r.status, 0, r.err);
   assert.ok(repo.allCalls().some((args) => args.includes("--candidates") && !args.includes("ramon-sg/issue-flow#v0.2.0")));
   assert.equal(repo.exists(".claude/repo-guard.config.json") ? repo.read(".claude/repo-guard.config.json").environment : undefined, undefined);
-  assert.deepEqual(repo.calls().at(-1), ["@ramon-sg/skills-manager@1", "init", "--catalog", "ramon-sg/agent-skills", "--select", "catalog:ramon-sg/agent-skills/planning"]);
+  assert.deepEqual(repo.calls().at(-1), ["@ramon-sg/skills-manager@1.2.0", "init", "--catalog", "ramon-sg/agent-skills", "--select", "catalog:ramon-sg/agent-skills/planning"]);
 });
 
 test("the latest tag is the highest version, not the last one as text", () => {
@@ -461,7 +461,7 @@ test("issue-flow set to false acts like --skip issue-flow", () => {
   assert.equal(r.status, 0, r.err);
   assert.ok(repo.allCalls().some((args) => args.includes("--candidates") && !args.includes("ramon-sg/issue-flow#v0.2.0")));
   assert.equal(repo.exists(".claude/repo-guard.config.json") ? repo.read(".claude/repo-guard.config.json").environment : undefined, undefined);
-  assert.deepEqual(repo.calls().at(-1), ["@ramon-sg/skills-manager@1", "init", "--catalog", "ramon-sg/agent-skills", "--select", "catalog:ramon-sg/agent-skills/planning"]);
+  assert.deepEqual(repo.calls().at(-1), ["@ramon-sg/skills-manager@1.2.0", "init", "--catalog", "ramon-sg/agent-skills", "--select", "catalog:ramon-sg/agent-skills/planning"]);
 });
 
 test("--yes without the file does what it did and writes no file", () => {

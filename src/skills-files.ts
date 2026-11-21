@@ -9,8 +9,9 @@ import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { dependencyVersion, installedVersion, isObject, readJson, writeJson } from "./repo.js";
 import { SKILLS_LOCK, SKILLS_MANAGER, SKILLS_MANIFEST } from "./piece.js";
-import { RUNNER_MINIMUMS } from "./runner-mode.js";
-import { isRelease, repoMode, runTool, toolText, type ToolRun } from "./tools.js";
+import { MIN_VERSION } from "./pieces/skills-manager.js";
+import { legacyCeiling, legacyLatest, RUNNER_MINIMUMS } from "./runner-mode.js";
+import { compareSemver, isExactVersion, repoMode, runTool, toolText, type ToolRun } from "./tools.js";
 
 /** Where `skills-manager` puts the skills when the manifest does not say. */
 const SKILLS_DIR = ".agents/skills";
@@ -51,7 +52,7 @@ export function lockedSkills(root: string): Record<string, unknown> {
  * @example await updateSkills(root, ["close-pr", "pr-review-comments"]) // null
  */
 export async function updateSkills(root: string, names: string[]): Promise<{ command: string; run: ToolRun } | null> {
-  const spec = skillsManagerSpec(root);
+  const spec = await skillsManagerSpec(root);
   for (const name of names) {
     const run = await runTool(root, [spec, "update", name]);
     if (!run.ok) return { command: toolText(root, [spec, "update", name]), run };
@@ -121,18 +122,23 @@ export function pinCatalog(root: string, catalog: string, tag: string): boolean 
 /**
  * The `skills-manager` to run, so the lock is written by the same version every time. In
  * runner mode, the one `.agents/runner.json` pins, else its first version that reads that
- * file. In a legacy repo, the exact version package.json pins (the one its install leaves,
- * even before it runs), else the one in node_modules, else the range package.json has (npx
- * cannot take `workspace:`), else the latest 1.x.
+ * file. In a legacy repo, always an exact version below that first one (1.5.0), since a newer
+ * one would write runner.json and move skills-manager alone: the exact version package.json
+ * pins (the one its install leaves, even before it runs), else the one in node_modules, if
+ * they are below it; else the newest below it on npm, else agent-kitchen's minimum. A range
+ * in package.json is not run as such: it could resolve to 1.5.0 or later.
  * @param root - The repo.
  * @returns The spec.
- * @example skillsManagerSpec(root) // "@ramon-sg/skills-manager@1.2.0"
+ * @example await skillsManagerSpec(root) // "@ramon-sg/skills-manager@1.2.0"
  */
-export function skillsManagerSpec(root: string): string {
+export async function skillsManagerSpec(root: string): Promise<string> {
   const mode = repoMode(root);
   if (mode.kind === "runner") return `${SKILLS_MANAGER}@${mode.tools[SKILLS_MANAGER] ?? RUNNER_MINIMUMS[SKILLS_MANAGER]}`;
+  const ceiling = legacyCeiling(SKILLS_MANAGER);
+  const fits = (version: string | null): version is string => version !== null && isExactVersion(version) && compareSemver(version, ceiling) < 0;
   const pinned = dependencyVersion(readJson(root, "package.json"), SKILLS_MANAGER);
-  if (pinned !== null && isRelease(pinned)) return `${SKILLS_MANAGER}@${pinned}`;
-  const range = pinned === null || pinned.startsWith("workspace:") ? null : pinned;
-  return `${SKILLS_MANAGER}@${installedVersion(root, SKILLS_MANAGER) ?? range ?? "1"}`;
+  if (fits(pinned)) return `${SKILLS_MANAGER}@${pinned}`;
+  const installed = installedVersion(root, SKILLS_MANAGER);
+  if (fits(installed)) return `${SKILLS_MANAGER}@${installed}`;
+  return `${SKILLS_MANAGER}@${(await legacyLatest(SKILLS_MANAGER)) ?? MIN_VERSION}`;
 }

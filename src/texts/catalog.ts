@@ -29,6 +29,8 @@ export interface PieceTexts {
   notExactKept: (spec: string) => string;
   /** The same, in doctor. */
   notExact: (spec: string) => string;
+  /** In a legacy repo, a version in package.json that already reads `.agents/runner.json`, which the piece leaves alone. */
+  readsRunner: (spec: string) => string;
   /** A package written into package.json. */
   inPackage: (name: string, version: string) => string;
   /** A package written into `.agents/runner.json`. */

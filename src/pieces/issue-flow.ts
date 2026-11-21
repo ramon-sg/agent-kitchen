@@ -22,7 +22,7 @@ import { dependencyVersion, isObject, readJson, setDependency } from "../repo.js
 import { catalogSkills, manifestCatalogs, pinCatalog, updateSkills } from "../skills-files.js";
 import type { Lang } from "../lang.js";
 import { currentLang, ui } from "../texts/index.js";
-import { GITHUB_REST, offeredVersion, toolVersion } from "../runner-mode.js";
+import { GITHUB_REST, legacyCeiling, offeredVersion, toolVersion } from "../runner-mode.js";
 import { captureTool, compareSemver, compareVersions, isExactVersion, isRelease, npmDependencies, npmLatest, raiseTool, repoMode, runTool, toolText } from "../tools.js";
 
 /** The piece's name, as `--skip` takes it. */
@@ -83,6 +83,18 @@ export function flowSpec(root: string): string | null {
 export function flowVersion(root: string): string | null {
   const spec = flowSpec(root);
   return spec !== null && isRelease(spec) ? spec : null;
+}
+
+/**
+ * Whether a legacy repo's package.json pins a version of the flow that already reads
+ * runner.json: running anything at it (its doctor, labels, a repair `apply`) would move the
+ * flow alone to runner mode, so the piece leaves it alone until the repo migrates.
+ * @param root - The repo.
+ * @param version - The flow's version in the repo, or null.
+ * @returns True for a legacy repo at or above the flow's runner minimum.
+ */
+function aboveCeiling(root: string, version: string | null): boolean {
+  return version !== null && repoMode(root).kind === "legacy" && compareVersions(version, legacyCeiling(FLOW_PACKAGE)) >= 0;
 }
 
 /**
@@ -334,6 +346,7 @@ export async function issueFlowStatus(root: string): Promise<PieceStatus> {
   const spec = flowSpec(root);
   if (spec !== null && !isRelease(spec)) return { name: NAME, summary, installed: true, state: said.notExactKept(spec), steps: [] };
   const installed = flowVersion(root);
+  if (aboveCeiling(root, installed)) return { name: NAME, summary, installed: true, state: said.readsRunner(installed as string), steps: [] };
   const latest = await offeredVersion(root, FLOW_PACKAGE);
   const behind = installed !== null && latest !== null && compareVersions(latest, installed) > 0;
   const target = installed === null || behind ? latest : installed;
@@ -359,6 +372,7 @@ export async function issueFlowChecks(root: string): Promise<Check[]> {
   if (spec === null) return [{ name: NAME, status: "info", detail: ui.pieces.common.notInstalled }];
   const installed = flowVersion(root);
   if (installed === null) return [{ name: NAME, status: "info", detail: ui.pieces.common.notExact(spec) }];
+  if (aboveCeiling(root, installed)) return [{ name: NAME, status: "info", detail: ui.pieces.common.readsRunner(installed) }];
   if (compareVersions(installed, JSON_DOCTOR) < 0) return [{ name: NAME, status: "info", detail: said.noJsonDoctor(installed) }];
   const labelsRead = missingLabels(root, installed);
   const found = await flowDoctor(root, installed, currentLang());

@@ -4,6 +4,9 @@
 // newest version below the first one that reads runner.json, so no tool moves to runner mode
 // alone.
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { test } from "node:test";
 import { toolText } from "../dist/tools.js";
 import { installedRepo, makeRepo } from "./helpers.mjs";
@@ -41,10 +44,21 @@ function runnerRepo(tools = MINIMUMS) {
 // The SessionStart commands of .claude/settings.json.
 const sessionStart = (repo) => (repo.exists(".claude/settings.json") ? (repo.read(".claude/settings.json").hooks?.SessionStart ?? []).flatMap((group) => group.hooks.map((hook) => hook.command)) : []);
 
+// A git first in PATH that logs its arguments to <tmp>/git.log and runs the real one.
+function loggedGit(repo) {
+  const dir = join(repo.tmp, "gitlog");
+  mkdirSync(dir);
+  const real = execFileSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).trim();
+  writeFileSync(join(dir, "git"), `#!/bin/sh\necho "$*" >> "${join(repo.tmp, "git.log")}"\nexec "${real}" "$@"\n`);
+  chmodSync(join(dir, "git"), 0o755);
+  return { PATH: `${dir}:${join(repo.tmp, "bin")}:${process.env.PATH}`, read: () => (existsSync(join(repo.tmp, "git.log")) ? readFileSync(join(repo.tmp, "git.log"), "utf8") : "") };
+}
+
 test("in runner mode the table shows each piece's version from runner.json, and the guard's latest from npm", () => {
   const repo = runnerRepo();
+  const git = loggedGit(repo);
 
-  const r = repo.cli(["apply", "--dry-run"], { env: { FAKE_NPM: LATEST } });
+  const r = repo.cli(["apply", "--dry-run"], { env: { FAKE_NPM: LATEST, PATH: git.PATH } });
 
   assert.equal(r.status, 0, r.err);
   assert.match(r.out, /issue-flow +0\.6\.0, hay 0\.6\.1/);
@@ -53,6 +67,8 @@ test("in runner mode the table shows each piece's version from runner.json, and 
   assert.match(r.out, /claude-repo-guard +0\.8\.0, hay 0\.8\.1/);
   assert.doesNotMatch(r.out, /0\.2\.0|1\.2\.0|0\.9\.0/);
   assert.doesNotMatch(r.out, /GitHub no tiene una versión/);
+  assert.match(git.read(), /ls-remote .*ramon-sg\/agent-skills/, "the logged git ran");
+  assert.doesNotMatch(git.read(), /ls-remote .*claude-repo-guard/);
 });
 
 test("in runner mode apply --yes updates each piece with bunx --bun at its latest, and runner.json follows", () => {
@@ -177,4 +193,41 @@ test("in runner mode, a PR that fails to open says how to open it with the runne
   assert.equal(r.status, 1);
   assert.ok(repo.calls().some((args) => args.slice(0, 3).join(" ") === "@ramon-sg/github-rest@0.7.0 pr create"));
   assert.match(r.out, /bunx --bun @ramon-sg\/github-rest@0\.7\.0 pr create --head chore\/agent-kitchen-apply-\S+ --base main --title 'chore: agent-kitchen apply' --body \.\.\. --draft/);
+});
+
+// The registry with skills-manager 1.5.1 as latest, and 1.4.3 the newest below 1.5.0.
+const SKILLS_MANAGER_NPM = { FAKE_NPM: JSON.stringify({ "@ramon-sg/issue-flow": "0.2.0", "agent-cloud-kit": "0.9.1", "@ramon-sg/skills-manager": "1.5.1" }), FAKE_NPM_VERSIONS: JSON.stringify({ "@ramon-sg/skills-manager": ["1.2.0", "1.4.3", "1.5.0", "1.5.1"] }) };
+
+for (const [what, pin] of [["a range and no node_modules", "^1.2.0"], ["an exact pin of 1.5.1", "1.5.1"]]) {
+  test(`in legacy mode skills-manager runs below 1.5.0 with ${what} in package.json`, () => {
+    const repo = installedRepo();
+    repo.write("package.json", { devDependencies: { "@ramon-sg/issue-flow": "0.2.0", "@ramon-sg/github-rest": "0.2.1", "@ramon-sg/skills-manager": pin } });
+
+    const applied = repo.cli(["apply", "--yes"], { env: SKILLS_MANAGER_NPM });
+    const applyCalls = repo.allCalls();
+    const doctor = repo.cli(["doctor"], { env: SKILLS_MANAGER_NPM });
+    const calls = [...applyCalls, ...repo.allCalls()].map((args) => args.join(" ")).filter((call) => call.includes("skills-manager"));
+
+    assert.equal(applied.status, 0, applied.err);
+    assert.ok(doctor.out.length > 0);
+    assert.ok(calls.some((call) => call.startsWith("@ramon-sg/skills-manager@1.4.3 check")), calls.join("\n"));
+    assert.ok(calls.length > 1 && calls.every((call) => call.startsWith("@ramon-sg/skills-manager@1.4.3 ")), calls.join("\n"));
+    assert.equal(repo.exists(".agents/runner.json"), false);
+  });
+}
+
+test("in legacy mode an issue-flow pin that already reads runner.json is shown and left alone: nothing runs at it", () => {
+  const repo = installedRepo({ flow: "0.6.0" });
+  const env = { FAKE_NPM: JSON.stringify({ "@ramon-sg/issue-flow": "0.6.1", "agent-cloud-kit": "0.9.1" }), FAKE_FLOW_DOCTOR: JSON.stringify([{ name: "SessionStart hook", ok: false, detail: "at 0.5.0" }]) };
+
+  const r = repo.cli(["apply", "--yes", "--skip", "skills-manager,agent-cloud-kit,claude-repo-guard,skills,agents-md"], { env });
+  const applyCalls = repo.allCalls();
+  const doctor = repo.cli(["doctor"], { env });
+
+  assert.equal(r.status, 0, r.err);
+  assert.match(r.out, /issue-flow +package\.json tiene 0\.6\.0, que ya lee \.agents\/runner\.json/);
+  assert.deepEqual(applyCalls.filter((args) => args[0].startsWith("@ramon-sg/issue-flow")), []);
+  assert.deepEqual(repo.allCalls().filter((args) => args[0].startsWith("@ramon-sg/issue-flow")), []);
+  assert.match(doctor.out, /issue-flow: package\.json tiene 0\.6\.0, que ya lee/);
+  assert.equal(repo.exists(".agents/runner.json"), false);
 });
