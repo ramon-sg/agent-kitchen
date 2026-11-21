@@ -97,6 +97,8 @@ If the move is cut short, the repo stays in runner mode with the tools that fail
 
 ## Usage
 
+Every example works with `bunx` or `npx`, according to the repo's runner.
+
 ```sh
 bunx agent-kitchen apply                       # (with Node: npx) asks, in a terminal (Enter: everything suggested)
 npx agent-kitchen apply --dry-run              # only shows what it would do

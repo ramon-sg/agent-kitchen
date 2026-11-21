@@ -97,6 +97,8 @@ Si la migración se corta, el repo queda en modo runner con las herramientas que
 
 ## Uso
 
+Cada ejemplo funciona con `bunx` o con `npx`, según el ejecutor del repo.
+
 ```sh
 bunx agent-kitchen apply                       # (con Node: npx) pregunta, en una terminal (Enter: todo lo sugerido)
 npx agent-kitchen apply --dry-run              # solo muestra qué haría

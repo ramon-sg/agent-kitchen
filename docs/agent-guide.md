@@ -84,6 +84,8 @@ En modo runner (hay `.agents/runner.json`), la versión de cada herramienta est�
 
 ## Las skills, una por una
 
+Los comandos de las skills se escriben sin ejecutor: corre cada herramienta con el ejecutor y la versión de `.agents/runner.json` (en un repo sin `runner.json`, `npx`). Los nombres de paquete llevan siempre el scope.
+
 `context: fork` quiere decir que la skill corre en un fork del agente: no ve la conversación, el plan ni la issue. Quien la llama le pasa en los argumentos qué se pidió, qué queda fuera y el foco.
 
 ### Catálogo `ramon-sg/issue-flow`
@@ -101,7 +103,7 @@ Se instalan en la tag de la versión de `issue-flow` del repo. Están en españo
 
 #### `start-issue`
 
-- **Hace:** corre `npx @ramon-sg/issue-flow issue start <n>`, que lee ramas, PRs y worktrees de la issue, crea o retoma la rama, hace un commit vacío, publica el PR en draft (`Closes #n`) y asigna la issue. Después reemplaza "En progreso." del cuerpo del PR por un resumen de la issue.
+- **Hace:** corre `@ramon-sg/issue-flow issue start <n>` (el atajo `issue:start`, o con el ejecutor de `.agents/runner.json`), que lee ramas, PRs y worktrees de la issue, crea o retoma la rama, hace un commit vacío, publica el PR en draft (`Closes #n`) y asigna la issue. Después reemplaza "En progreso." del cuerpo del PR por un resumen de la issue.
 - **Argumentos:** `<n> [--branch] [--resume <rama> | --new] [--yes]`.
 - **Modo según dónde corre:** nube (`CLAUDE_CODE_REMOTE=true`) → `--here`; worktree recién creado por `claude --worktree`, Orca o Paseo → `--adopt`; checkout principal → worktree nuevo (por defecto) o `--branch` si el usuario pide quedarse.
 - **Secuencia:** `--dry-run` con las mismas flags, mostrar la salida, OK, luego `--yes --no-launch`. Bash con `timeout: 600000`.
@@ -114,7 +116,7 @@ Se instalan en la tag de la versión de `issue-flow` del repo. Están en españo
 - **Argumentos:** `[número de PR]`, o el de la rama actual.
 - **Antes del merge, las tres:** un review `APPROVED` sin `CHANGES_REQUESTED` (o lo que diga `project.md`), ningún check en `fail` ni `pending`, y la base sin avanzar desde el último push.
 - **En la nube:** pide al usuario el "Ready for review" en GitHub y se detiene antes del merge.
-- **Limpieza:** en un worktree no se borra desde adentro; `npx @ramon-sg/issue-flow worktree prune` lo hace después.
+- **Limpieza:** en un worktree no se borra desde adentro; `@ramon-sg/issue-flow worktree prune` (atajo `worktree:prune`) lo hace después.
 - **Archivos:** `SKILL.md`, `project.md` (qué corre sin preguntar, qué corre antes del push, cierre de planes, bots, qué cuenta como aprobado).
 
 #### `pr-review-comments`
@@ -126,7 +128,7 @@ Se instalan en la tag de la versión de `issue-flow` del repo. Están en españo
 
 #### `pr-worktree`
 
-- **Hace:** abre un PR en `.claude/worktrees/pr-<n>`, en la rama real del PR, con `npx @ramon-sg/issue-flow pr worktree <n>`, y lo revisa: contexto, `code-audit` contra la base, tests del área.
+- **Hace:** abre un PR en `.claude/worktrees/pr-<n>`, en la rama real del PR, con `@ramon-sg/issue-flow pr worktree <n>` (atajo `pr:worktree`), y lo revisa: contexto, `code-audit` contra la base, tests del área.
 - **Argumentos:** `<número de PR>`.
 - **Reglas:** nunca `gh pr checkout` ni `git switch` en el checkout principal, ni `claude --worktree pr-<n>`. Los pasos `trusted` (instalar dependencias) se saltan hasta que alguien revisó el diff de los archivos de instalación. Un PR de un fork se rechaza. Los cuerpos van con `--body-file`, no con heredoc.
 - **Archivos:** solo `SKILL.md`.
@@ -175,7 +177,7 @@ Cada una lleva su propia tag en el lock.
 
 #### `manage-skills`
 
-- **Hace:** responde qué skills tiene el repo y las agrega o actualiza con `npx @ramon-sg/skills-manager` (`list`, `init|add --candidates` y `--select <ids>`, `update --dry-run`, `check`).
+- **Hace:** responde qué skills tiene el repo y las agrega o actualiza con `@ramon-sg/skills-manager` con el ejecutor del repo (`list`, `init|add --candidates` y `--select <ids>`, `update --dry-run`, `check`).
 - **Reglas:** nunca editar a mano una skill de plugin o repo; nunca commit ni push: muestra el diff y deja el commit al usuario.
 - **Archivos:** solo `SKILL.md`. Está en inglés.
 
@@ -200,12 +202,12 @@ Cada una lleva su propia tag en el lock.
 3. `planning` si el cambio no cabe en una frase; espera la aprobación.
 4. TDD: el primer test falla por la causa del problema.
 5. `close-pr`: `code-audit` → documentos al día → push → ready → `pr-review-comments` hasta que no quede nada → merge commit.
-6. `npx @ramon-sg/issue-flow worktree prune`: borra el worktree con su Docker y sus puertos.
+6. `@ramon-sg/issue-flow worktree prune` (atajo `worktree:prune`): borra el worktree con su Docker y sus puertos.
 
 ## En la nube de Claude
 
 - `CLAUDE_CODE_REMOTE=true` indica la nube. El hook `SessionStart` de `issue-flow` llama a `agent-cloud-kit session`.
-- `npx agent-cloud-kit prepare` deja el repo listo para la nube: escribe `docs/agent-cloud.md` y `.claude/cloud-notes.md`. El paquete no impone tests.
+- `agent-cloud-kit prepare`, con el ejecutor del repo, deja el repo listo para la nube: escribe `docs/agent-cloud.md` y `.claude/cloud-notes.md`. El paquete no impone tests.
 - El proxy bloquea GraphQL de GitHub y las releases de GitHub. Todo va por REST.
 - No hay `gh pr ready`, `gh pr merge` ni resolver hilos: las skills se detienen y lo dicen.
 - Hay un solo checkout: `start-issue` usa `--here`.
