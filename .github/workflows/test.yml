@@ -14,3 +14,19 @@ jobs:
           node-version: ${{ matrix.node }}
       - run: npm ci
       - run: npm test
+  test-bun:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        node: [20, 24]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - uses: oven-sh/setup-bun@v2
+      - run: npm ci
+      - run: npm run build
+      - run: bun dist/cli.js --version
+      - run: npm test

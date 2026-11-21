@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 /**
  * @file Entry point of `agent-kitchen`: parses the arguments and runs the command. Before
  * that, if npm has a newer agent-kitchen than the one running (npx may run an old copy from
