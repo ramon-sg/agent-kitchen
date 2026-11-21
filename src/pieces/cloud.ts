@@ -9,7 +9,7 @@
 import type { Check, PieceStatus, Step } from "../piece.js";
 import { readJson, writeJson } from "../repo.js";
 import { ui } from "../texts/index.js";
-import { compareSemver, isExactVersion, npmLatestExact, runNpx } from "../tools.js";
+import { compareSemver, isExactVersion, npmLatestExact, runTool, toolText } from "../tools.js";
 
 /** The piece's name, as `--skip` takes it. */
 export const NAME = "agent-cloud-kit";
@@ -45,9 +45,9 @@ function stepFor(config: Record<string, unknown> | null, latest: string | null):
       downloads: [spec],
       text: { kind: "cloud-install", version: latest },
       run: async (context) => {
-        const run = await runNpx(context.root, [spec, "init"]);
+        const run = await runTool(context.root, [spec, "init"]);
         if (run.ok) return true;
-        context.fail(ui.pieces.common.failed("agent-cloud-kit init", `npx ${spec} init`), run.output);
+        context.fail(ui.pieces.common.failed("agent-cloud-kit init", toolText(context.root, [spec, "init"])), run.output);
         return false;
       },
     };
@@ -63,9 +63,9 @@ function stepFor(config: Record<string, unknown> | null, latest: string | null):
       const schema = typeof current.$schema === "string" ? current.$schema.replace(/\/agent-cloud-kit@[^/]+\//, `/${PACKAGE}@${latest}/`) : undefined;
       writeJson(context.root, CONFIG, { ...current, ...(schema === undefined ? {} : { $schema: schema }), version: latest });
       const spec = `${PACKAGE}@${latest}`;
-      const run = await runNpx(context.root, [spec, "init"]);
+      const run = await runTool(context.root, [spec, "init"]);
       if (run.ok) return true;
-      context.fail(ui.pieces.common.failed("agent-cloud-kit init", `npx ${spec} init`), run.output);
+      context.fail(ui.pieces.common.failed("agent-cloud-kit init", toolText(context.root, [spec, "init"])), run.output);
       return false;
     },
   };

@@ -9,7 +9,7 @@ import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { dependencyVersion, installedVersion, isObject, readJson, writeJson } from "./repo.js";
 import { SKILLS_LOCK, SKILLS_MANAGER, SKILLS_MANIFEST } from "./piece.js";
-import { isRelease, runNpx, type ToolRun } from "./tools.js";
+import { isRelease, runTool, toolText, type ToolRun } from "./tools.js";
 
 /** Where `skills-manager` puts the skills when the manifest does not say. */
 const SKILLS_DIR = ".agents/skills";
@@ -52,8 +52,8 @@ export function lockedSkills(root: string): Record<string, unknown> {
 export async function updateSkills(root: string, names: string[]): Promise<{ command: string; run: ToolRun } | null> {
   const spec = skillsManagerSpec(root);
   for (const name of names) {
-    const run = await runNpx(root, [spec, "update", name]);
-    if (!run.ok) return { command: `npx ${spec} update ${name}`, run };
+    const run = await runTool(root, [spec, "update", name]);
+    if (!run.ok) return { command: toolText(root, [spec, "update", name]), run };
   }
   return null;
 }

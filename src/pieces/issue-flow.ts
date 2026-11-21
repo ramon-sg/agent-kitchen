@@ -18,7 +18,7 @@ import { dependencyVersion, isObject, readJson, setDependency } from "../repo.js
 import { catalogSkills, manifestCatalogs, pinCatalog, updateSkills } from "../skills-files.js";
 import type { Lang } from "../lang.js";
 import { currentLang, ui } from "../texts/index.js";
-import { captureNpx, compareVersions, isRelease, npmDependencies, npmLatest, runNpx } from "../tools.js";
+import { captureTool, compareVersions, isRelease, npmDependencies, npmLatest, runTool, toolText } from "../tools.js";
 
 /** The piece's name, as `--skip` takes it. */
 export const NAME = "issue-flow";
@@ -121,9 +121,9 @@ async function moveSkills(context: Context, version: string): Promise<boolean> {
  * @returns Whether it exited 0.
  */
 async function runFlow(context: Context, version: string, args: string[]): Promise<boolean> {
-  const run = await runNpx(context.root, [`${FLOW_PACKAGE}@${version}`, ...args], { [LANG_VAR]: currentLang() });
+  const run = await runTool(context.root, [`${FLOW_PACKAGE}@${version}`, ...args], { [LANG_VAR]: currentLang() });
   if (run.ok) return true;
-  context.fail(ui.pieces.common.failed(`issue-flow ${args[0] ?? ""}`, `npx ${FLOW_PACKAGE}@${version} ${args.join(" ")}`), run.output);
+  context.fail(ui.pieces.common.failed(`issue-flow ${args[0] ?? ""}`, toolText(context.root, [`${FLOW_PACKAGE}@${version}`, ...args])), run.output);
   return false;
 }
 
@@ -135,8 +135,8 @@ async function runFlow(context: Context, version: string, args: string[]): Promi
  * @returns Whether it worked.
  */
 async function applyFlow(context: Context, version: string): Promise<boolean> {
-  const retry = `npx ${FLOW_PACKAGE}@${version} apply --yes`;
-  const result = await captureNpx(context.root, [`${FLOW_PACKAGE}@${version}`, "apply", "--yes", "--json"], false, { [LANG_VAR]: currentLang() });
+  const retry = toolText(context.root, [`${FLOW_PACKAGE}@${version}`, "apply", "--yes"]);
+  const result = await captureTool(context.root, [`${FLOW_PACKAGE}@${version}`, "apply", "--yes", "--json"], false, { [LANG_VAR]: currentLang() });
   const output = `${result?.out ?? ""}${result?.err ?? ""}`;
   if (result === null || result.status !== 0) {
     context.fail(ui.pieces.common.failed("issue-flow apply", retry), output);
@@ -165,7 +165,7 @@ async function applyFlow(context: Context, version: string): Promise<boolean> {
  * @returns Its checks, or null if it could not run or its output is not a list.
  */
 async function flowDoctor(root: string, version: string, lang: Lang, lookup = false): Promise<FlowCheck[] | null> {
-  const result = await captureNpx(root, [`${FLOW_PACKAGE}@${version}`, "doctor", "--json"], lookup, { [LANG_VAR]: lang });
+  const result = await captureTool(root, [`${FLOW_PACKAGE}@${version}`, "doctor", "--json"], lookup, { [LANG_VAR]: lang });
   try {
     const found: unknown = JSON.parse(result?.out ?? "");
     return Array.isArray(found) ? (found as FlowCheck[]) : null;
@@ -203,7 +203,7 @@ function needsRepair(checks: FlowCheck[], version: string): boolean {
  */
 async function missingLabels(root: string, version: string): Promise<string[] | null> {
   if (compareVersions(version, LABELS_SINCE) < 0) return [];
-  const result = await captureNpx(root, [`${FLOW_PACKAGE}@${version}`, "labels", "sync", "--dry-run", "--json"], true, { [LANG_VAR]: currentLang() });
+  const result = await captureTool(root, [`${FLOW_PACKAGE}@${version}`, "labels", "sync", "--dry-run", "--json"], true, { [LANG_VAR]: currentLang() });
   let found: unknown;
   try {
     found = JSON.parse(result?.out ?? "");
@@ -335,7 +335,7 @@ export async function issueFlowChecks(root: string): Promise<Check[]> {
   const found = await flowDoctor(root, installed, currentLang());
   const own: Check[] = found !== null
     ? found.map((check) => ({ name: `${NAME}: ${String(check.name)}`, status: check.ok === true ? "ok" : "fail", detail: String(check.detail) }))
-    : [{ name: NAME, status: "fail", detail: ui.pieces.common.doctorFailed(`npx ${FLOW_PACKAGE}@${installed} doctor`) }];
+    : [{ name: NAME, status: "fail", detail: ui.pieces.common.doctorFailed(toolText(root, [`${FLOW_PACKAGE}@${installed}`, "doctor"])) }];
   const off = skillsOff(root, installed);
   const count = catalogSkills(root, FLOW_CATALOG).length;
   const skills: Check = count === 0 && off.length === 0

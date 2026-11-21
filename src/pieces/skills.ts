@@ -15,7 +15,7 @@ import { type Candidate, type Check, type Context, FLOW_CATALOG, FLOW_PACKAGE, G
 import { isObject, readJson } from "../repo.js";
 import { catalogSkills, lockedSkills, manifestCatalogs, ownSkills, pinCatalog, skillsManagerSpec, updateSkills } from "../skills-files.js";
 import { ui } from "../texts/index.js";
-import { captureNpx, compareVersions, latestTag, npmLatest, runNpx } from "../tools.js";
+import { captureTool, compareVersions, latestTag, npmLatest, runTool, toolText } from "../tools.js";
 import { flowVersion } from "./issue-flow.js";
 
 /** The piece's name, as `--skip` takes it. */
@@ -96,7 +96,7 @@ function catalogOf(id: string): string {
  */
 async function readCandidates(root: string, flow: string | null): Promise<Candidate[] | null> {
   const command = readJson(root, SKILLS_MANIFEST) === null ? "init" : "add";
-  const result = await captureNpx(root, [skillsManagerSpec(root), command, "--candidates", ...catalogArgs(flow)], true);
+  const result = await captureTool(root, [skillsManagerSpec(root), command, "--candidates", ...catalogArgs(flow)], true);
   let found: unknown;
   try {
     found = JSON.parse(result?.out ?? "");
@@ -148,9 +148,9 @@ async function install(context: Context, pick: SkillPick): Promise<boolean> {
   const spec = skillsManagerSpec(context.root);
   const command = readJson(context.root, SKILLS_MANIFEST) === null ? "init" : "add";
   const args = [spec, command, ...catalogArgs(flow), "--select", picked.join(","), ...(pick.replace.length === 0 ? [] : ["--replace", pick.replace.join(",")])];
-  const run = await runNpx(context.root, args);
+  const run = await runTool(context.root, args);
   if (!run.ok) {
-    context.fail(ui.pieces.skills.installFailed(`npx ${args.join(" ")}`), run.output);
+    context.fail(ui.pieces.skills.installFailed(toolText(context.root, args)), run.output);
     return false;
   }
   const names = pick.candidates.filter((candidate) => picked.includes(candidate.id)).map((candidate) => candidate.name);
@@ -248,7 +248,7 @@ export async function skillsStatus(root: string, withFlow: boolean): Promise<Pie
 export async function skillsChecks(root: string): Promise<Check[]> {
   if (readJson(root, SKILLS_MANIFEST) === null) return [{ name: NAME, status: "info", detail: ui.pieces.skills.notInstalled }];
   const spec = skillsManagerSpec(root);
-  const result = await captureNpx(root, [spec, "check"]);
+  const result = await captureTool(root, [spec, "check"]);
   if (result?.status === 0) return [{ name: NAME, status: "ok", detail: ui.pieces.skills.checkOk }];
-  return [{ name: NAME, status: "fail", detail: ui.pieces.skills.checkFailed(`npx ${spec} check`) }];
+  return [{ name: NAME, status: "fail", detail: ui.pieces.skills.checkFailed(toolText(root, [spec, "check"])) }];
 }

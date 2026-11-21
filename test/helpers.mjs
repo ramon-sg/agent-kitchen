@@ -1,5 +1,5 @@
 // Helpers of the tests: a repo with a main checkout (and, if asked, a local origin), the fake
-// npx, npm and pnpm of fake-tools.mjs
+// npx, bunx, npm and pnpm of fake-tools.mjs
 // first in PATH, local GitHub repos with release tags (git reaches them through an
 // insteadOf rewrite of https://github.com/, so `git ls-remote` is the real one), and the
 // compiled CLI.
@@ -39,8 +39,15 @@ const git = (cwd, ...args) => execFileSync("git", args, { cwd, encoding: "utf8",
 // The calls of one program logged in a file.
 const logged = (log, program) => (existsSync(log) ? readFileSync(log, "utf8").split("\n").filter(Boolean).map((line) => JSON.parse(line)).filter((call) => call.program === program).map((call) => call.args) : []);
 
-// The npx calls logged in a file, without `--yes`.
-const npxCalls = (log) => logged(log, "npx").map((args) => args.slice(1));
+// The tools' runners.
+const RUNNERS = ["npx", "bunx"];
+
+// The npx and bunx calls logged in a file, in order, with their program and their arguments
+// without the first one (`--yes` or `--bun`).
+const toolCalls = (log) => (existsSync(log) ? readFileSync(log, "utf8").split("\n").filter(Boolean).map((line) => JSON.parse(line)).filter((call) => RUNNERS.includes(call.program)).map((call) => ({ program: call.program, args: call.args.slice(1) })) : []);
+
+// The npx and bunx calls logged in a file, without `--yes` or `--bun`.
+const npxCalls = (log) => toolCalls(log).map((call) => call.args);
 
 // A repo for the tests. `tags` gives the release tags of each GitHub repo.
 // With `origin`, the repo also gets an `origin` remote (a local bare repo) with main pushed
@@ -67,7 +74,7 @@ export function makeRepo({ tags = { "ramon-sg/claude-repo-guard": ["0.1.0", "0.2
     git(main, "push", "-q", "origin", "main");
     git(main, "remote", "set-head", "origin", "main");
   }
-  for (const [name, as] of [["npx", ""], ["npm", "FAKE_AS=npm "], ["pnpm", "FAKE_AS=pnpm "]]) {
+  for (const [name, as] of [["npx", ""], ["bunx", "FAKE_AS=bunx "], ["npm", "FAKE_AS=npm "], ["pnpm", "FAKE_AS=pnpm "]]) {
     writeFileSync(join(bin, name), `#!/bin/sh\n${as}exec node "${join(HERE, "fake-tools.mjs")}" "$@"\n`);
     chmodSync(join(bin, name), 0o755);
   }
@@ -100,11 +107,13 @@ export function makeRepo({ tags = { "ramon-sg/claude-repo-guard": ["0.1.0", "0.2
       const result = spawnSync(process.execPath, [CLI, ...args], { cwd, encoding: "utf8", env: env(extra) });
       return { status: result.status, out: result.stdout, err: result.stderr };
     },
-    // The npx calls of the last run, without `--yes`, nor the downloads ahead of a step
-    // (`--package`) nor the reads of what the catalogs offer (`--candidates`).
+    // The npx and bunx calls of the last run, without `--yes` or `--bun`, nor the downloads
+    // ahead of a step (`--package`) nor the reads of what the catalogs offer (`--candidates`).
     calls: () => npxCalls(log).filter((args) => args[0] !== "--package" && !args.includes("--candidates")),
-    // Every npx call of the last run, without `--yes`.
+    // Every npx and bunx call of the last run, without `--yes` or `--bun`.
     allCalls: () => npxCalls(log),
+    // The program (npx or bunx) of every call allCalls gives, in the same order.
+    programs: () => toolCalls(log).map((call) => call.program),
     // Every npm call of the last run.
     npmCalls: () => logged(log, "npm"),
     // Every call of the last run, with the program and its GH_REPO.

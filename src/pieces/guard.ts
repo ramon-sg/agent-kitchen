@@ -16,7 +16,7 @@
 import { type Check, type Context, FLOW_CONFIG, type PieceStatus, type Step } from "../piece.js";
 import { readJson, writeJson } from "../repo.js";
 import { currentLang, ui } from "../texts/index.js";
-import { captureNpx, compareVersions, isRelease, latestTag, runNpx } from "../tools.js";
+import { captureTool, compareVersions, isRelease, latestTag, runTool, toolText } from "../tools.js";
 
 /** The piece's name, as `--skip` takes it. */
 export const NAME = "claude-repo-guard";
@@ -68,13 +68,14 @@ export function guardCommand(version: string | null): string {
 
 /**
  * What to say when the guard did not install.
+ * @param root - The repo.
  * @param version - The version it ran.
  * @param output - What it printed.
  * @returns One line: the command to run by hand, and the sandbox hint only if the output is a permission error.
- * @example guardFailure("0.5.1", "Error: EPERM: operation not permitted") // "…sandbox…"
+ * @example guardFailure(root, "0.5.1", "Error: EPERM: operation not permitted") // "…sandbox…"
  */
-export function guardFailure(version: string | null, output: string): string {
-  const command = `npx ${guardSpec(version)} ${guardCommand(version)}`;
+export function guardFailure(root: string, version: string | null, output: string): string {
+  const command = toolText(root, [guardSpec(version), guardCommand(version)]);
   return PERMISSION_ERROR.test(output) ? ui.pieces.guard.sandbox(command) : ui.pieces.guard.failed(command);
 }
 
@@ -116,9 +117,9 @@ async function install(context: Context, version: string | null): Promise<boolea
   const { options, changes } = guardOptions(context.root, process.platform);
   if (changes.length > 0) writeJson(context.root, CONFIG, options);
   for (const change of changes) context.note(change);
-  const run = await runNpx(context.root, [guardSpec(version), guardCommand(version), "--yes"], { [LANG_VAR]: currentLang() });
+  const run = await runTool(context.root, [guardSpec(version), guardCommand(version), "--yes"], { [LANG_VAR]: currentLang() });
   if (run.ok) return true;
-  context.fail(guardFailure(version, run.output), run.output);
+  context.fail(guardFailure(context.root, version, run.output), run.output);
   return false;
 }
 
@@ -196,14 +197,14 @@ export async function guardChecks(root: string): Promise<Check[]> {
   const checks: Check[] = [];
   if (process.platform === "darwin" && readJson(root, CONFIG)?.[WEAKER_NETWORK] !== true)
     checks.push({ name: `${NAME}: ${WEAKER_NETWORK}`, status: "fail", detail: said.checkWeaker(CONFIG) });
-  const result = await captureNpx(root, [guardSpec(installed), "doctor", "--json"], false, { [LANG_VAR]: currentLang() });
+  const result = await captureTool(root, [guardSpec(installed), "doctor", "--json"], false, { [LANG_VAR]: currentLang() });
   let found: unknown;
   try {
     found = JSON.parse(result?.out ?? "");
   } catch {
     found = null;
   }
-  if (!Array.isArray(found)) return [...checks, { name: NAME, status: "fail", detail: ui.pieces.common.doctorFailed(`npx ${guardSpec(installed)} doctor`) }];
+  if (!Array.isArray(found)) return [...checks, { name: NAME, status: "fail", detail: ui.pieces.common.doctorFailed(toolText(root, [guardSpec(installed), "doctor"])) }];
   const bad = found.filter((check: unknown) => typeof check !== "object" || check === null || (check as { ok?: unknown }).ok !== true);
   if (bad.length === 0) return [...checks, { name: NAME, status: "ok", detail: said.checkOk(installed ?? said.unknown) }];
   return [...checks, ...bad.map((check: unknown) => {
