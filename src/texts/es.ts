@@ -17,7 +17,7 @@ export const es: Catalog = {
     "runner-finish": ({ left }) => ({
       menu: `Terminar el paso a .agents/runner.json: quitar ${list(left)}`,
       doing: "Terminando el paso a .agents/runner.json…",
-      done: `Paso a .agents/runner.json terminado: sin ${list(left)}`,
+      done: left.length === 0 ? "Paso a .agents/runner.json: no quedó nada que se pudiera quitar en esta corrida" : `Paso a .agents/runner.json terminado: sin ${list(left)}`,
     }),
     "runner-migrate": ({ runner, tools }) => ({
       menu: `Pasar las herramientas a .agents/runner.json con el ejecutor ${runner}: ${list(tools)}`,

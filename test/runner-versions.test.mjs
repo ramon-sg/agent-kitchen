@@ -32,11 +32,14 @@ const LATEST = JSON.stringify({
 // GitHub without any tag of the guard: in runner mode it is looked up on npm.
 const NO_GUARD_TAGS = { "ramon-sg/agent-skills": ["0.1.0", "0.2.0"] };
 
-// A repo in runner mode at the minimums, with other numbers in package.json, cloud.json and the
-// guard's manifest on purpose: none of them is where a runner repo keeps its versions.
-function runnerRepo(tools = MINIMUMS) {
+// A repo in runner mode at the minimums, clean of the legacy mode: no ecosystem devDependencies
+// and no version in cloud.json (the guard's manifest stays, as after a move, with another number
+// on purpose). With `traces`, package.json and cloud.json keep other numbers too, to show that
+// none of them is where a runner repo keeps its versions; cleaning them is migrate.test.mjs's.
+function runnerRepo(tools = MINIMUMS, { traces = false } = {}) {
   const repo = installedRepo({ flow: "0.6.0", cloud: "0.9.0", guard: "0.2.0", tags: NO_GUARD_TAGS });
-  repo.write("package.json", { devDependencies: { "@ramon-sg/issue-flow": "0.2.0", "@ramon-sg/github-rest": "0.2.1", "@ramon-sg/skills-manager": "1.2.0" } });
+  repo.write("package.json", traces ? { devDependencies: { "@ramon-sg/issue-flow": "0.2.0", "@ramon-sg/github-rest": "0.2.1", "@ramon-sg/skills-manager": "1.2.0" } } : { private: true });
+  if (!traces) repo.write(".claude/cloud.json", {});
   repo.write(".agents/runner.json", { tools });
   return repo;
 }
@@ -55,7 +58,7 @@ function loggedGit(repo) {
 }
 
 test("in runner mode the table shows each piece's version from runner.json, and the guard's latest from npm", () => {
-  const repo = runnerRepo();
+  const repo = runnerRepo(MINIMUMS, { traces: true });
   const git = loggedGit(repo);
 
   const r = repo.cli(["apply", "--dry-run"], { env: { FAKE_NPM: LATEST, PATH: git.PATH } });
@@ -88,8 +91,7 @@ test("in runner mode apply --yes updates each piece with bunx --bun at its lates
     "@ramon-sg/skills-manager": "1.5.1",
     "agent-cloud-kit": "1.0.1",
   });
-  // The fixture's cloud.json version is a legacy leftover: the runner piece's finishing step takes it out, and nothing writes a new one.
-  assert.equal("version" in repo.read(".claude/cloud.json"), false, "agent-kitchen does not write cloud.json's version in runner mode");
+  assert.deepEqual(repo.read(".claude/cloud.json"), {}, "agent-kitchen does not write cloud.json's version in runner mode");
   assert.match(r.out, /bunx --bun agent-cloud-kit@1\.0\.1 prepare/);
 });
 

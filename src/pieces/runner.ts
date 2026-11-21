@@ -125,9 +125,22 @@ export async function runnerStatus(root: string, skip: string[]): Promise<PieceS
   const base = { name: NAME, summary: said.summary };
   const mode = repoMode(root);
   if (mode.kind === "runner") {
-    const left = labels(leftovers(root, false));
+    // Only what this run can take out: a tool's leftovers wait while runner.json does not pin it
+    // and its piece is left out, since nothing in this run will pin it.
+    const pieceFor = (pkg: string): string => (pkg === GITHUB_REST ? FLOW : pieceOf(pkg));
+    const left = labels(leftovers(root, (pkg) => mode.tools[pkg] !== undefined || !skip.includes(pieceFor(pkg)), false));
     if (left.length === 0) return { ...base, installed: true, state: said.inRunner(mode.runner), steps: [] };
-    const finish: Step = { piece: NAME, checked: true, downloads: [], text: { kind: "runner-finish", left }, run: (context) => Promise.resolve(finishMove(context, false)) };
+    const finish: Step = {
+      piece: NAME,
+      checked: true,
+      downloads: [],
+      text: { kind: "runner-finish", left },
+      run: (context) => {
+        // The end line says what was taken out, which a step that failed earlier in the run may have cut short.
+        finish.text = { kind: "runner-finish", left: finishMove(context, false) };
+        return Promise.resolve(true);
+      },
+    };
     return { ...base, installed: true, state: `${said.inRunner(mode.runner)}${said.leftovers}`, steps: [finish] };
   }
   const tools = installedTools(root);
@@ -197,7 +210,10 @@ async function migrate(context: Context, runner: Runner, warning: string | null,
     ...(guard === undefined ? [] : [[GUARD, () => pinned(context, GUARD_PACKAGE, guard, installGuard(context, guard))] as Part]),
     ...(cloud === undefined ? [] : [[CLOUD, () => moveCloud(context, cloud)] as Part]),
     ...(skillsManager === undefined ? [] : [[SKILLS_MANAGER_PIECE, async () => (await updateInRunner(context, skillsManager)) && (flow === undefined || moveSkills(context, flow))] as Part]),
-    [said.cleanup, () => Promise.resolve(finishMove(context, true))],
+    [said.cleanup, () => {
+      finishMove(context, true);
+      return Promise.resolve(true);
+    }],
   ];
   for (const [index, [, part]] of parts.entries()) {
     if (await attempt(context, part)) continue;
@@ -236,7 +252,7 @@ function moveCloud(context: Context, version: string): Promise<boolean> {
 
 /** What a legacy repo leaves once its tools are in runner.json. */
 interface Leftovers {
-  /** Ecosystem tools in dependencies or devDependencies. */
+  /** Ecosystem tools in devDependencies (one in dependencies is the repo's own use). */
   deps: string[];
   /** Scripts that are only a skills-manager command, run from node_modules or through npx. */
   scripts: string[];
@@ -244,27 +260,33 @@ interface Leftovers {
   mixed: string[];
   /** Whether `.claude/cloud.json` still has `version`. */
   cloudVersion: boolean;
-  /** Lockfiles and node_modules, when the repo has no dependencies of its own. */
+  /** Lockfiles and node_modules: when the repo has no dependencies of its own, and only along with a legacy trace. */
   files: string[];
   /** The `session-notice` command to pin, if its hook is not at runner.json's skills-manager. */
   hook: string | null;
 }
 
 /**
- * What the legacy repo left behind, in a repo in runner mode.
+ * What the legacy repo left behind, in a repo in runner mode. The lockfile and node_modules
+ * count only when the repo has no dependencies of its own and a legacy trace goes with them (an
+ * ecosystem tool in devDependencies, or the `version` of cloud.json), or at the end of the move:
+ * a repo in runner mode that keeps them on its own may well use them.
  * @param root - The repo, in runner mode.
- * @param pinnedOnly - Only the tools runner.json pins: the ones the cleanup may take out.
+ * @param can - Whether a tool's leftovers may go: runner.json pins it (or will, in this run).
+ * @param moving - Whether it is the end of the move, which always took legacy traces out.
  * @returns The leftovers.
  */
-function leftovers(root: string, pinnedOnly: boolean): Leftovers {
+function leftovers(root: string, can: (pkg: string) => boolean, moving: boolean): Leftovers {
   const mode = repoMode(root);
   const tools = mode.kind === "runner" ? mode.tools : {};
   const pkg = readJson(root, "package.json");
-  const deps = ECOSYSTEM_TOOLS.filter((name) => dependencyVersion(pkg, name) !== null && (!pinnedOnly || tools[name] !== undefined));
+  const dev = isObject(pkg?.devDependencies) ? pkg.devDependencies : {};
+  const deps = ECOSYSTEM_TOOLS.filter((name) => name in dev && can(name));
   const scripts = isObject(pkg?.scripts) ? Object.entries(pkg.scripts).filter(([, command]) => typeof command === "string" && SKILLS_RUN.test(command)) : [];
-  const ownsScripts = !pinnedOnly || tools[SKILLS_MANAGER] !== undefined;
-  const cloudVersion = (!pinnedOnly || tools[CLOUD_PACKAGE] !== undefined) && readJson(root, CLOUD_CONFIG)?.version !== undefined;
-  const files = ownDependencies(root).length > 0 ? [] : [...lockfiles(root), ...(existsSync(join(root, "node_modules")) ? ["node_modules"] : [])];
+  const ownsScripts = can(SKILLS_MANAGER);
+  const cloudVersion = can(CLOUD_PACKAGE) && readJson(root, CLOUD_CONFIG)?.version !== undefined;
+  const traced = moving || deps.length > 0 || cloudVersion;
+  const files = !traced || ownDependencies(root).length > 0 ? [] : [...lockfiles(root), ...(existsSync(join(root, "node_modules")) ? ["node_modules"] : [])];
   const version = tools[SKILLS_MANAGER];
   const command = version === undefined || mode.kind !== "runner" ? null : toolCommandText(mode.runner, SKILLS_MANAGER, version, ["session-notice"]);
   const hooks = sessionNoticeCommands(root);
@@ -299,19 +321,20 @@ function labels(left: Leftovers): string[] {
  * the run if package.json changed. A tool runner.json does not pin yet stays where it is: its
  * own piece offers it again.
  * @param context - Where it runs, in runner mode.
+ * Only ecosystem tools in devDependencies go: one in dependencies is the repo's own use.
  * @param moving - Whether it is the end of the move, which always changed package.json.
- * @returns True.
+ * @returns What it took out, as the step names it.
  */
-function finishMove(context: Context, moving: boolean): boolean {
+function finishMove(context: Context, moving: boolean): string[] {
   const said = ui.pieces.runner;
   const { root } = context;
-  const left = leftovers(root, true);
+  const pins = repoMode(root);
+  const left = leftovers(root, (pkg) => pins.kind === "runner" && pins.tools[pkg] !== undefined, moving);
   const changed = editPackage(root, (pkg) => {
-    for (const field of ["dependencies", "devDependencies"]) {
-      const deps = pkg[field];
-      if (!isObject(deps)) continue;
+    const deps = pkg.devDependencies;
+    if (isObject(deps)) {
       for (const name of left.deps) delete deps[name];
-      if (Object.keys(deps).length === 0) delete pkg[field];
+      if (Object.keys(deps).length === 0) delete pkg.devDependencies;
     }
     const scripts = pkg.scripts;
     if (!isObject(scripts)) return;
@@ -330,7 +353,7 @@ function finishMove(context: Context, moving: boolean): boolean {
   for (const path of left.files) rmSync(join(root, path), { recursive: true, force: true });
   if (left.files.length > 0) context.note(said.removed(left.files));
   if (ownDependencies(root).length > 0 && (moving || changed)) context.note(said.installLater(packageManager(root)));
-  return true;
+  return labels(left);
 }
 
 /**

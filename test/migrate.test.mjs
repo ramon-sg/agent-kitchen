@@ -224,6 +224,73 @@ test("the rule about node_modules planned before the move is not written into a 
   assert.match(r.out, /la regla no se agregó/);
 });
 
+// A repo in runner mode after a move, with the tools pinned, the guard's manifest, and package.json as given.
+function movedRepo(pkg, tools = LATEST) {
+  const repo = installedRepo({ flow: "0.6.0", guard: "0.8.0", tags: TAGS });
+  repo.write("package.json", pkg);
+  repo.write(".claude/cloud.json", {});
+  repo.write(".agents/runner.json", { runner: "bun", tools });
+  repo.write(".agents/skills.lock.json", { lockVersion: 2, skills: {} });
+  return repo;
+}
+
+test("finishing a move takes out only what this run can: a left-out tool's leftovers are not claimed, nor offered again", () => {
+  const { "agent-cloud-kit": _cloud, ...tools } = LATEST;
+  const repo = movedRepo({ private: true }, tools);
+  repo.write(".claude/cloud.json", { version: "0.9.1" });
+
+  const r = repo.cli(["apply", "--yes", "--skip", "agent-cloud-kit"], env());
+  const again = repo.cli(["apply", "--dry-run", "--skip", "agent-cloud-kit"], env());
+
+  assert.equal(r.status, 0, `${r.out}\n${r.err}`);
+  assert.doesNotMatch(r.out, /"version" en \.claude\/cloud\.json/);
+  assert.equal(repo.read(".claude/cloud.json").version, "0.9.1");
+  assert.doesNotMatch(again.out, /Terminar el paso/);
+});
+
+test("finishing a move says what it took out when a tool it waited for failed in the same run", () => {
+  const { "agent-cloud-kit": _cloud, ...tools } = LATEST;
+  const repo = movedRepo({ private: true, devDependencies: { "@ramon-sg/skills-manager": "1.2.0" } }, tools);
+  repo.write(".claude/cloud.json", { version: "0.9.1" });
+
+  const r = repo.cli(["apply", "--yes"], { env: { FAKE_NPM: JSON.stringify(LATEST), FAKE_FAIL: "agent-cloud-kit@1.0.0 init" } });
+
+  assert.equal(r.status, 1, r.out);
+  assert.match(r.out, /Paso a \.agents\/runner\.json terminado: sin @ramon-sg\/skills-manager en package\.json\b/);
+  assert.doesNotMatch(r.out, /terminado: [^\n]*"version" en \.claude\/cloud\.json/);
+  assert.equal(repo.read(".claude/cloud.json").version, "0.9.1");
+  assert.equal(repo.read("package.json").devDependencies, undefined);
+});
+
+test("in runner mode a lockfile and node_modules the repo uses are never offered: workspaces, or nothing legacy to take out", () => {
+  const workspaces = movedRepo({ private: true, workspaces: ["packages/*"], devDependencies: { "@ramon-sg/skills-manager": "1.2.0" } });
+  workspaces.write("packages/a/package.json", { name: "a", dependencies: { react: "19.0.0" } });
+  const alone = movedRepo({ private: true });
+  for (const repo of [workspaces, alone]) {
+    repo.write("package-lock.json", "lock\n");
+    repo.write("node_modules/react/package.json", { version: "19.0.0" });
+  }
+
+  const a = workspaces.cli(["apply", "--dry-run"], env());
+  const b = alone.cli(["apply", "--dry-run"], env());
+
+  assert.match(a.out, /\[x\] Terminar el paso a \.agents\/runner\.json: quitar @ramon-sg\/skills-manager en package\.json\n/);
+  assert.doesNotMatch(a.out, /package-lock\.json|node_modules/);
+  assert.doesNotMatch(b.out, /Terminar el paso/);
+});
+
+test("finishing a move leaves an ecosystem tool in dependencies: it is the repo's own use", () => {
+  const repo = movedRepo({ private: true, dependencies: { "@ramon-sg/github-rest": "0.7.0" }, devDependencies: { "@ramon-sg/skills-manager": "1.2.0" } });
+  repo.write("package-lock.json", "lock\n");
+
+  const r = repo.cli(["apply", "--yes"], env());
+
+  assert.equal(r.status, 0, `${r.out}\n${r.err}`);
+  assert.deepEqual(repo.read("package.json").dependencies, { "@ramon-sg/github-rest": "0.7.0" });
+  assert.equal(repo.read("package.json").devDependencies, undefined);
+  assert.ok(repo.exists("package-lock.json"), "the repo installs github-rest from it");
+});
+
 test("--pr commits runner.json, package.json and the deleted lockfile", () => {
   const repo = legacyRepo({ origin: true });
   repo.git("add", "-A");

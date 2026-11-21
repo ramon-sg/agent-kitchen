@@ -100,16 +100,21 @@ export function dependencyVersion(pkg: Record<string, unknown> | null, name: str
 export const ECOSYSTEM_TOOLS = ["@ramon-sg/issue-flow", "@ramon-sg/github-rest", "@ramon-sg/skills-manager", "@ramon-sg/claude-repo-guard", "agent-cloud-kit"];
 
 /**
- * The names in `dependencies` and `devDependencies` of package.json that are not tools of the
- * ecosystem: what the repo itself needs installed.
+ * What the repo itself needs installed: the names in `dependencies`, `optionalDependencies` and
+ * `peerDependencies`, those of `devDependencies` that are not tools of the ecosystem (a tool in
+ * `dependencies` is the repo's own use, as a library), and `workspaces` if it has any, since
+ * its packages have dependencies of their own.
  * @param root - The repo.
- * @returns The names; none without package.json.
+ * @returns The names (and "workspaces"); none without package.json.
  * @example ownDependencies(root) // ["react"]
  */
 export function ownDependencies(root: string): string[] {
   const pkg = readJson(root, "package.json");
-  const names = ["dependencies", "devDependencies"].flatMap((field) => (isObject(pkg?.[field]) ? Object.keys(pkg[field]) : []));
-  return [...new Set(names)].filter((name) => !ECOSYSTEM_TOOLS.includes(name));
+  const keys = (field: string): string[] => (isObject(pkg?.[field]) ? Object.keys(pkg[field]) : []);
+  const workspaces = pkg?.workspaces;
+  const hasWorkspaces = Array.isArray(workspaces) ? workspaces.length > 0 : isObject(workspaces) && Array.isArray(workspaces.packages) && workspaces.packages.length > 0;
+  const names = [...["dependencies", "optionalDependencies", "peerDependencies"].flatMap(keys), ...keys("devDependencies").filter((name) => !ECOSYSTEM_TOOLS.includes(name))];
+  return [...new Set([...names, ...(hasWorkspaces ? ["workspaces"] : [])])];
 }
 
 /** The lockfile of each package manager, in the order they are looked for. */
