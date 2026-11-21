@@ -2,7 +2,7 @@
 // node (`npx --yes`). A repo without that file runs them with npx, as before.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { download, repoMode, toolText } from "../dist/tools.js";
+import { repoMode, toolText } from "../dist/tools.js";
 import { installedRepo, makeRepo } from "./helpers.mjs";
 
 // The versions installedRepo has, as runner.json pins them.
@@ -62,7 +62,7 @@ test("a step that fails with Bun says how to run it by hand with bunx --bun", ()
   assert.match(r.err, /agent-cloud-kit init falló; corre 'bunx --bun agent-cloud-kit@1\.1\.0 init'/);
 });
 
-test("repoMode and toolText follow runner.json; a runner takes no GitHub spec", () => {
+test("repoMode and toolText follow runner.json; a GitHub spec keeps npx in runner mode", () => {
   const repo = makeRepo();
   const args = ["agent-cloud-kit@1.1.0", "init", "--name", "a b"];
 
@@ -77,7 +77,6 @@ test("repoMode and toolText follow runner.json; a runner takes no GitHub spec", 
   repo.write(".agents/runner.json", { tools: {} });
   assert.deepEqual(repoMode(repo.main), { kind: "runner", runner: "bun" });
   assert.equal(toolText(repo.main, args), "bunx --bun agent-cloud-kit@1.1.0 init --name 'a b'");
-  assert.throws(() => toolText(repo.main, ["github:ramon-sg/claude-repo-guard#v0.2.0", "doctor"]), /GitHub spec/);
+  assert.equal(toolText(repo.main, ["github:ramon-sg/claude-repo-guard#v0.2.0", "doctor"]), "npx github:ramon-sg/claude-repo-guard#v0.2.0 doctor");
   assert.throws(() => toolText(repo.main, ["@ramon-sg/issue-flow", "doctor"]), /with a version/);
-  assert.throws(() => download(repo.main, "github:ramon-sg/claude-repo-guard#v0.2.0"), /GitHub spec/);
 });

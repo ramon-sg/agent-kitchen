@@ -193,7 +193,7 @@ export function npmLatestExact(name: string): Promise<string | null> {
  * @returns What the registry answers, or null if it cannot be reached, does not answer 200 or does not send JSON.
  */
 async function packument(name: string): Promise<Record<string, unknown> | null> {
-  const registry = (process.env.AGENT_KITCHEN_REGISTRY || "https://registry.npmjs.org").replace(/\/+$/, "");
+  const registry = (process.env.AGENT_KITCHEN_REGISTRY || process.env.npm_config_registry || "https://registry.npmjs.org").replace(/\/+$/, "");
   try {
     const response = await fetch(`${registry}/${name.replace("/", "%2f")}`, { signal: AbortSignal.timeout(LOOKUP_TIMEOUT_MS), headers: { accept: "application/json" } });
     if (response.status !== 200) return null;
@@ -259,6 +259,8 @@ export type RepoMode = { kind: "runner"; runner: Runner } | { kind: "legacy" };
 /**
  * How a repo runs its tools. Every read of `.agents/runner.json` goes through here.
  * @param root - The repo.
+ * It re-reads the file on every call, so the mode can change in the middle of a run (for example
+ * after a tool's apply writes runner.json).
  * @returns Runner mode with its runner, or legacy mode if the repo has no runner.json.
  * @throws KitError If runner.json exists but cannot be used (the one place that turns a RunnerFileError into one).
  * @example repoMode(root) // { kind: "runner", runner: "bun" }
@@ -278,26 +280,26 @@ export function repoMode(root: string): RepoMode {
  * Splits a spec into its package and its version, at the last `@` that does not start it.
  * @param spec - The package and its version, as `name@x.y.z` or `@scope/name@x.y.z`.
  * @returns The package and the version.
- * @throws {Error} For a GitHub spec or one without a version: a runner takes neither.
+ * @throws {Error} For a spec without a version: a runner takes none.
  * @example splitSpec("@ramon-sg/issue-flow@0.2.0") // { pkg: "@ramon-sg/issue-flow", version: "0.2.0" }
  */
 function splitSpec(spec: string): { pkg: string; version: string } {
-  if (spec.startsWith("github:")) throw new Error(`a runner cannot run a GitHub spec: ${spec}`);
   const at = spec.lastIndexOf("@");
   if (at <= 0 || at === spec.length - 1) throw new Error(`a runner needs a spec with a version: ${spec}`);
   return { pkg: spec.slice(0, at), version: spec.slice(at + 1) };
 }
 
 /**
- * The program and arguments that run a tool in the repo.
+ * The program and arguments that run a tool in the repo. A `github:` spec always runs with
+ * `npx --yes`, even in runner mode, until claude-repo-guard is on npm (Part B, Task B1).
  * @param root - The repo.
  * @param args - The spec and the tool's arguments.
- * @returns `npx --yes <args>` in legacy mode, else the runner's command.
+ * @returns `npx --yes <args>` in legacy mode or for a GitHub spec, else the runner's command.
  */
 function toolInvocation(root: string, args: string[]): { file: string; args: string[] } {
   const mode = repoMode(root);
-  if (mode.kind === "legacy") return { file: "npx", args: ["--yes", ...args] };
   const [spec = "", ...rest] = args;
+  if (mode.kind === "legacy" || spec.startsWith("github:")) return { file: "npx", args: ["--yes", ...args] };
   const { pkg, version } = splitSpec(spec);
   return toolCommand(mode.runner, pkg, version, rest);
 }
@@ -306,13 +308,14 @@ function toolInvocation(root: string, args: string[]): { file: string; args: str
  * The command that runs a tool in the repo, to show to the person so they can run it by hand.
  * @param root - The repo.
  * @param args - The spec and the tool's arguments.
- * @returns `npx <args>` in legacy mode, else the runner's command, quoted for a shell.
+ * A `github:` spec is shown with `npx` even in runner mode, until claude-repo-guard is on npm (Part B, Task B1).
+ * @returns `npx <args>` in legacy mode or for a GitHub spec, else the runner's command, quoted for a shell.
  * @example toolText(root, ["agent-cloud-kit@1.1.0", "init"]) // "bunx --bun agent-cloud-kit@1.1.0 init"
  */
 export function toolText(root: string, args: string[]): string {
   const mode = repoMode(root);
-  if (mode.kind === "legacy") return `npx ${args.join(" ")}`;
   const [spec = "", ...rest] = args;
+  if (mode.kind === "legacy" || spec.startsWith("github:")) return `npx ${args.join(" ")}`;
   const { pkg, version } = splitSpec(spec);
   return toolCommandText(mode.runner, pkg, version, rest);
 }
@@ -328,7 +331,8 @@ export function toolText(root: string, args: string[]): string {
  */
 export function download(root: string, spec: string): Promise<void> {
   const mode = repoMode(root);
-  if (mode.kind === "runner") {
+  // A GitHub spec downloads with npx even in runner mode, until claude-repo-guard is on npm (Part B, Task B1).
+  if (mode.kind === "runner" && !spec.startsWith("github:")) {
     splitSpec(spec);
     if (mode.runner === "bun") return Promise.resolve();
   }

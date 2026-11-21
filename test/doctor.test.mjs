@@ -96,6 +96,20 @@ test("doctor shows one runner line when the repo has runner.json and its bunx ru
 
   assert.match(r.out, /✓ runner: /);
   assert.equal(r.out.split("\n").filter((line) => /^\S+ runner:/.test(line)).length, 1);
+  assert.equal(r.status, 0);
+});
+
+test("doctor in runner mode runs the guard (a GitHub spec) with npx and the other tools with bunx, with no stack trace", () => {
+  const repo = installedRepo();
+  repo.write(".agents/runner.json", { runner: "bun", tools: {} });
+
+  const r = repo.cli(["doctor"]);
+
+  assert.doesNotMatch(r.err + r.out, /\n\s+at .*\(/);
+  assert.doesNotMatch(r.err + r.out, /cannot run a GitHub spec/);
+  const guardCalls = repo.allCalls().map((args, i) => ({ args, program: repo.programs()[i] })).filter((c) => c.args[0].startsWith("github:"));
+  assert.ok(guardCalls.length > 0);
+  assert.ok(guardCalls.every((c) => c.program === "npx"));
 });
 
 test("doctor fails the runner line when bunx is not on the PATH", () => {

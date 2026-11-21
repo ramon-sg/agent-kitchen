@@ -115,6 +115,8 @@ export function makeRepo({ tags = { "ramon-sg/claude-repo-guard": ["0.1.0", "0.2
   return {
     tmp,
     main,
+    // The URL of this repo's fake registry.
+    registry: `http://127.0.0.1:${PORT}/${id}`,
     git: (...args) => git(main, ...args),
     // Runs the CLI with no terminal; the log of calls starts empty.
     cli(args, { env: extra = {}, cwd = main, runtime = process.execPath } = {}) {

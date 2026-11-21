@@ -34,3 +34,19 @@ test("a package the registry does not have gives no latest version", () => {
   assert.doesNotMatch(r.out, /hay 0\.2\.0/);
   assert.deepEqual(repo.npmCalls(), []);
 });
+
+test("lookups use npm_config_registry when AGENT_KITCHEN_REGISTRY is not set", () => {
+  const repo = installedRepo({ flow: "0.1.0" });
+  const r = repo.cli(["apply", "--dry-run"], { env: { AGENT_KITCHEN_REGISTRY: "", npm_config_registry: repo.registry } });
+
+  assert.equal(r.status, 0, r.err);
+  assert.match(r.out, /issue-flow +0\.1\.0, hay 0\.2\.0/);
+});
+
+test("AGENT_KITCHEN_REGISTRY wins over npm_config_registry", () => {
+  const repo = installedRepo({ flow: "0.1.0" });
+  const r = repo.cli(["apply", "--dry-run"], { env: { npm_config_registry: "http://127.0.0.1:9/nope" } });
+
+  assert.equal(r.status, 0, r.err);
+  assert.match(r.out, /issue-flow +0\.1\.0, hay 0\.2\.0/);
+});
