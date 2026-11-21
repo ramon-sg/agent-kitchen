@@ -4,12 +4,13 @@ Esta guía explica, en simple, las herramientas que `agent-kitchen` instala en u
 
 ## Resumen
 
-- **Un comando lo instala todo:** `npx agent-kitchen apply` muestra qué tiene el repo, qué falta y qué está atrasado, y lo deja al día.
+- **Un comando lo instala todo:** `bunx agent-kitchen apply` (o `npx agent-kitchen apply` con Node) muestra qué tiene el repo, qué falta y qué está atrasado, y lo deja al día.
 - **Cada issue tiene su rama, su carpeta y su PR:** `issue-flow` los crea al empezar y los borra cuando se mergea.
 - **Las skills le enseñan al agente cada paso:** crear una issue, empezarla, planificar, auditar, responder la revisión y mergear.
 - **Las barandas dejan trabajar al agente sin preguntar:** `claude-repo-guard` le permite escribir solo dentro de su carpeta.
 - **Lo mismo funciona en la nube:** `agent-cloud-kit` prepara las sesiones de Claude en claude.ai con las herramientas del repo.
-- **El agente usa la versión instalada de cada biblioteca:** una línea en `AGENTS.md` le pide mirarla antes de escribir código.
+- **El agente usa la versión instalada de cada biblioteca:** una línea en `AGENTS.md` le pide mirarla antes de escribir código. Solo se escribe si el repo tiene dependencias propias.
+- **Cada herramienta corre en la versión que fija el repo:** `.agents/runner.json` guarda el ejecutor (Bun por defecto, o Node) y la versión exacta de cada herramienta. Se commitea, y las herramientas no necesitan `node_modules`. Un repo sin ese archivo sigue como antes, y `agent-kitchen apply` ofrece pasarlo cuando todas las herramientas ya lo leen.
 
 ## Las herramientas
 
@@ -27,7 +28,7 @@ Esta guía explica, en simple, las herramientas que `agent-kitchen` instala en u
 
 `AGENTS.md` se carga entero en cada sesión, se use o no. Por eso tiene solo lo que el agente necesita siempre; el detalle va en otros archivos, que el agente abre cuando le hacen falta.
 
-`agent-kitchen` le agrega una sola línea: antes de usar una biblioteca, mirar su versión instalada en `node_modules` y leer sus tipos ahí. En pruebas con Zod 3 y Zod 4, con esa línea el agente leyó los tipos antes de escribir; sin ella, escribió de memoria. Una tabla con todas las versiones habría costado una fila por dependencia en cada sesión, y quedaba vieja con cada cambio.
+`agent-kitchen` le agrega una sola línea: antes de usar una biblioteca, mirar su versión instalada en `node_modules` y leer sus tipos ahí. En pruebas con Zod 3 y Zod 4, con esa línea el agente leyó los tipos antes de escribir; sin ella, escribió de memoria. Una tabla con todas las versiones habría costado una fila por dependencia en cada sesión, y quedaba vieja con cada cambio. Si el repo corre sus herramientas con `.agents/runner.json` y no tiene dependencias propias, no hay `node_modules` que mirar y la línea no se escribe.
 
 Si el repo tiene `CLAUDE.md`, `agent-kitchen` le agrega `@AGENTS.md`: con `CLAUDE.md`, Claude Code no lee `AGENTS.md` por su cuenta.
 
@@ -75,7 +76,7 @@ Para cambiar una skill para todos los repos, se cambia en su repo de origen y se
 ## Un día con el flujo
 
 1. **Anotar el trabajo:** le pides al agente una issue y `github-issues` la escribe; tú la apruebas.
-2. **Empezar:** `npx @ramon-sg/issue-flow issue start 42` crea la carpeta de la issue, abre el PR en draft y abre Claude ahí.
+2. **Empezar:** `issue-flow issue start 42` (en un repo con `.agents/runner.json`, el atajo `issue:start` de `package.json`, con la versión fija) crea la carpeta de la issue, abre el PR en draft y abre Claude ahí.
 3. **Planificar, si hace falta:** con un cambio grande, `planning` escribe el plan y espera tu OK antes de tocar código.
 4. **Implementar:** el agente escribe primero el test que falla y después el arreglo.
 5. **Cerrar:** `close-pr` corre `code-audit`, saca el PR de draft y espera la revisión. `pr-review-comments` atiende cada comentario.
