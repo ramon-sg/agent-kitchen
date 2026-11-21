@@ -82,6 +82,8 @@ export interface Catalog {
   noSteps: (why: "leave" | "none", wrote: boolean) => string;
   /** Nothing was changed. */
   nothingChanged: string;
+  /** The line of a first run that writes runner.json: the runner chosen. */
+  runnerWritten: (file: string, runner: string) => string;
   /** The same, as a warning after the program's name. */
   nothingChangedWarning: string;
   /** With --pr, before the clone: from which branch of origin. */
@@ -145,6 +147,11 @@ export interface Catalog {
     inPrHint: (base: string) => string;
     inHere: string;
     inHereHint: string;
+    /** The question of a repo's first run when there is no Bun in the terminal. */
+    noBun: string;
+    useNode: string;
+    useNodeHint: string;
+    leaveNoBun: string;
   };
   /** The end of doctor. */
   doctor: {

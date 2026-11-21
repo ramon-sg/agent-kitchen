@@ -154,6 +154,7 @@ export const es: Catalog = {
     return wrote ? "No elegiste pasos; solo guardé qué piezas usa el repo." : "No elegiste nada; no se cambió nada.";
   },
   nothingChanged: "No se cambió nada.",
+  runnerWritten: (file, runner) => `Repo nuevo: escribí ${file} con el ejecutor ${runner}; todas las herramientas se instalan con él.`,
   nothingChangedWarning: "no se cambió nada.",
   cloning: (base) => `Trabajo en una copia temporal de origin/${base}; tu rama y tus archivos no se tocan.`,
   changes: "Cambios del PR:",
@@ -226,6 +227,10 @@ de --pr quedan siempre en español.`,
     inPrHint: (base) => `recomendado · parte de origin/${base}, no toca tu rama ni tus archivos`,
     inHere: "En la rama actual, sin commit",
     inHereHint: "los revisas con git diff y haces commit tú",
+    noBun: "Bun no está instalado. ¿Con qué corro las herramientas de este repo?",
+    useNode: "Con Node (npx)",
+    useNodeHint: "puedes pasar a Bun después con \"runner\": \"bun\" en .agents/runner.json",
+    leaveNoBun: "Salir; instalo Bun y vuelvo",
   },
   doctor: {
     allOk: "Ninguna revisión falló.",

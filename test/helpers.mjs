@@ -65,13 +65,21 @@ const npxCalls = (log) => toolCalls(log).map((call) => call.args);
 // A repo for the tests. `tags` gives the release tags of each GitHub repo.
 // With `origin`, the repo also gets an `origin` remote (a local bare repo) with main pushed
 // and `origin/HEAD` set, as a clone has.
-export function makeRepo({ tags = { "ramon-sg/claude-repo-guard": ["0.1.0", "0.2.0"], "ramon-sg/agent-skills": ["0.1.0", "0.2.0"] }, origin = false } = {}) {
+// By default the repo already has agent-cloud-kit at its latest in .claude/cloud.json (committed, so a
+// clone of origin has it too; it asks for no step): it is not new, so apply leaves it in legacy mode
+// and the legacy tests keep their ground. A new repo, which apply starts in runner mode, is `makeFreshRepo`.
+export function makeRepo({ tags = { "ramon-sg/claude-repo-guard": ["0.1.0", "0.2.0"], "ramon-sg/agent-skills": ["0.1.0", "0.2.0"] }, origin = false, fresh = false } = {}) {
   const tmp = realpathSync(mkdtempSync(join(tmpdir(), "agent-kitchen-")));
   const main = join(tmp, "main");
   const bin = join(tmp, "bin");
   mkdirSync(main);
   mkdirSync(bin);
   git(main, "init", "-q", "-b", "main");
+  if (!fresh) {
+    mkdirSync(join(main, ".claude"));
+    writeFileSync(join(main, ".claude", "cloud.json"), JSON.stringify({ version: NPM["agent-cloud-kit"] }));
+    git(main, "add", ".");
+  }
   git(main, "commit", "-q", "--allow-empty", "-m", "init");
   for (const [repo, versions] of Object.entries(tags)) {
     const bare = join(tmp, "github", `${repo}.git`);
@@ -147,6 +155,9 @@ export function makeRepo({ tags = { "ramon-sg/claude-repo-guard": ["0.1.0", "0.2
     },
   };
 }
+
+// A repo with nothing installed and no runner.json, which apply starts in runner mode.
+export const makeFreshRepo = (options = {}) => makeRepo({ ...options, fresh: true });
 
 // A repo as agent-kitchen leaves it at the given versions: the flow, its skills and the general
 // ones, agent-cloud-kit, claude-repo-guard (with the flow's options) and the rule in AGENTS.md.

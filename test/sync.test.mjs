@@ -5,13 +5,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { mkdirSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
-import { CANDIDATES, installedRepo, makeRepo, npmCloud } from "./helpers.mjs";
+import { CANDIDATES, installedRepo, makeFreshRepo, makeRepo, npmCloud } from "./helpers.mjs";
 
 const ALL_SKILLS = CANDIDATES.map((candidate) => candidate.id).join(",");
 
 test("--dry-run on an empty repo shows the four pieces and the steps that install them, and changes nothing", () => {
-  const repo = makeRepo();
+  const repo = makeFreshRepo();
 
   const r = repo.cli(["--dry-run"]);
 
@@ -26,26 +27,24 @@ test("--dry-run on an empty repo shows the four pieces and the steps that instal
   assert.equal(repo.exists("package.json"), false);
 });
 
-test("--yes on an empty repo installs everything in order, each piece with its own tool, every skill offered at the flow's tag", () => {
-  const repo = makeRepo();
+test("--yes on an empty repo installs in order, in runner mode and through bunx, every skill offered at the flow's tag", () => {
+  const repo = makeFreshRepo();
 
   const r = repo.cli(["--yes"]);
 
   assert.equal(r.status, 0, r.err);
+  assert.equal(repo.read(".agents/runner.json").runner, "bun");
+  // The fake registry has no claude-repo-guard on npm, so in runner mode there is no guard step.
   assert.deepEqual(repo.calls(), [
     ["@ramon-sg/issue-flow@0.2.0", "init", "--yes"],
     ["agent-cloud-kit@0.9.1", "init"],
-    ["github:ramon-sg/claude-repo-guard#v0.2.0", "install", "--yes"],
-    ["@ramon-sg/skills-manager@1.2.0", "init", "--catalog", "ramon-sg/issue-flow#v0.2.0", "--catalog", "ramon-sg/agent-skills", "--select", ALL_SKILLS],
+    ["@ramon-sg/skills-manager@1.5.0", "init", "--catalog", "ramon-sg/agent-skills", "--select", "catalog:ramon-sg/agent-skills/planning"],
   ]);
-  const guard = repo.read(".claude/repo-guard.config.json");
-  assert.match(guard.environment[0], /draft PR/);
-  assert.equal(guard.weakerNetworkIsolation, process.platform === "darwin" ? true : undefined);
+  assert.ok(repo.programs().every((program) => program === "bunx"));
   assert.match(r.out, /^◒ Instalando issue-flow 0\.2\.0…$/m);
   assert.match(r.out, /✓ issue-flow 0\.2\.0 instalado: config del flujo, hooks y scripts \(\d+,\d s\)$/m);
   assert.doesNotMatch(r.out, /^→ /m);
-  assert.deepEqual(repo.npmCalls().filter((args) => args[0] === "install"), [["install"]]);
-  assert.match(r.out, /✓ Dependencias instaladas con npm/);
+  assert.deepEqual(repo.npmCalls().filter((args) => args[0] === "install"), []);
   assert.match(r.out, /\[ok\] Listo\.\n\n  Falta: revisa el diff y haz commit\./);
 });
 
@@ -187,15 +186,15 @@ test("a guard at the latest without the flow's options gets them, at its own ver
 });
 
 test("a step that fails does not stop the rest, says how to retry, and exits 1", () => {
-  const repo = makeRepo();
+  const repo = makeFreshRepo();
 
   const r = repo.cli(["--yes"], { env: { FAKE_FAIL: "agent-cloud-kit" } });
 
   assert.equal(r.status, 1);
-  assert.match(r.err, /agent-cloud-kit init falló; corre 'npx agent-cloud-kit@0\.9\.1 init'/);
+  assert.match(r.err, /agent-cloud-kit init falló; corre 'bunx --bun agent-cloud-kit@0\.9\.1 init'/);
   assert.match(r.err, /fake: agent-cloud-kit failed/);
   assert.match(r.out, /✗ Falló: Instalar agent-cloud-kit/);
-  assert.deepEqual(repo.calls().map((args) => args[0]), ["@ramon-sg/issue-flow@0.2.0", "agent-cloud-kit@0.9.1", "github:ramon-sg/claude-repo-guard#v0.2.0", "@ramon-sg/skills-manager@1.2.0"]);
+  assert.deepEqual(repo.calls().map((args) => args[0]), ["@ramon-sg/issue-flow@0.2.0", "agent-cloud-kit@0.9.1", "@ramon-sg/skills-manager@1.5.0"]);
   assert.match(r.out, /fallaron: Instalar agent-cloud-kit/);
 });
 
@@ -488,7 +487,7 @@ test("--dry-run and --skip leave the file as it was", () => {
 });
 
 test("with the file, a new piece is not installed without a terminal, and says so", () => {
-  const repo = makeRepo();
+  const repo = makeFreshRepo();
   repo.write(".agents/kitchen.json", { pieces: { "issue-flow": true, "claude-repo-guard": true, skills: true, "agents-md": true } });
   const text = decisionsText(repo);
 
@@ -535,7 +534,7 @@ test("a broken decisions file stops apply and is left as it was", () => {
 const CLOUD_ONLY = ["--yes", "--skip", "issue-flow,claude-repo-guard,skills"];
 
 test("agent-cloud-kit installs the exact release candidate that npm calls latest", () => {
-  const repo = makeRepo();
+  const repo = makeFreshRepo();
 
   const dry = repo.cli(["--dry-run"], { env: { FAKE_NPM: npmCloud("1.0.0-rc.0") } });
   const r = repo.cli(CLOUD_ONLY, { env: { FAKE_NPM: npmCloud("1.0.0-rc.0") } });
@@ -547,7 +546,7 @@ test("agent-cloud-kit installs the exact release candidate that npm calls latest
 });
 
 test("agent-cloud-kit is not installed when npm does not answer: @1 would be a version that reads runner.json", () => {
-  const repo = makeRepo();
+  const repo = makeFreshRepo();
 
   const r = repo.cli(CLOUD_ONLY, { env: { FAKE_NPM: "{}" } });
 
@@ -627,4 +626,55 @@ test("runner mode: apply --yes with the guard installed runs the guard from npm 
   assert.ok(calls.every((c) => !c.args.some((a) => a.startsWith("github:"))));
   assert.ok(calls.filter((c) => !c.args.includes("--package")).every((c) => c.program === "bunx"));
   assert.equal(repo.read(".agents/runner.json").tools["@ramon-sg/claude-repo-guard"], "0.8.1");
+});
+
+// A PATH where bunx is missing: the fake npx, node, and the system's own folders.
+const pathWithoutBunx = (repo) => {
+  const dir = join(repo.tmp, "nobun");
+  mkdirSync(dir);
+  symlinkSync(process.execPath, join(dir, "node"));
+  symlinkSync(join(repo.tmp, "bin", "npx"), join(dir, "npx"));
+  return `${dir}:/usr/bin:/bin`;
+};
+
+test("an empty repo with bunx gets runner.json with bun before any step, and every call goes through bunx", () => {
+  const repo = makeFreshRepo();
+
+  const r = repo.cli(["--yes"]);
+
+  assert.equal(r.status, 0, r.err);
+  const config = repo.read(".agents/runner.json");
+  assert.equal(config.runner, "bun");
+  assert.ok(repo.allCalls().length > 0);
+  assert.ok(repo.programs().every((program) => program === "bunx"), repo.programs().join(","));
+});
+
+test("an empty repo without bunx and without a terminal gets runner node, the warning, and every call goes through npx", () => {
+  const repo = makeFreshRepo();
+
+  const r = repo.cli(["--yes"], { env: { PATH: pathWithoutBunx(repo) } });
+
+  assert.equal(r.status, 0, r.err);
+  assert.equal(repo.read(".agents/runner.json").runner, "node");
+  assert.match(r.err + r.out, /Bun is not installed: the tools will run with Node/);
+  assert.ok(repo.allCalls().length > 0);
+  assert.ok(repo.programs().every((program) => program === "npx"), repo.programs().join(","));
+});
+
+test("--dry-run on an empty repo does not write runner.json", () => {
+  const repo = makeFreshRepo();
+
+  const r = repo.cli(["--dry-run"]);
+
+  assert.equal(r.status, 0, r.err);
+  assert.equal(repo.exists(".agents/runner.json"), false);
+});
+
+test("a repo with a tool installed and no runner.json stays in legacy mode", () => {
+  const repo = installedRepo({ cloud: "0.9.0" });
+
+  const r = repo.cli(["--yes"]);
+
+  assert.equal(r.status, 0, r.err);
+  assert.equal(repo.exists(".agents/runner.json"), false);
 });

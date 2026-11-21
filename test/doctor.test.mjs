@@ -5,7 +5,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdirSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
-import { installedRepo, makeRepo } from "./helpers.mjs";
+import { installedRepo, makeFreshRepo, makeRepo } from "./helpers.mjs";
 
 test("doctor passes on a repo with every piece, asking each tool at the repo's version", () => {
   const repo = installedRepo();
@@ -47,7 +47,7 @@ test("doctor names each problem, and only notes a newer release", () => {
 });
 
 test("doctor on an empty repo only notes what is not installed", () => {
-  const repo = makeRepo();
+  const repo = makeFreshRepo();
 
   const r = repo.cli(["doctor"]);
 

@@ -10,7 +10,7 @@ import { execFileSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { changedPaths, publish } from "../dist/pr-clone.js";
-import { GIT_ENV, makeRepo } from "./helpers.mjs";
+import { GIT_ENV, makeFreshRepo, makeRepo } from "./helpers.mjs";
 
 Object.assign(process.env, GIT_ENV);
 
@@ -155,7 +155,7 @@ test("if the install fails, nothing is pushed and the clone is kept with its pat
 });
 
 test("with a failed step, nothing is pushed and the clone is kept", () => {
-  const repo = makeRepo({ origin: true });
+  const repo = makeFreshRepo({ origin: true });
 
   const r = repo.cli(["--yes", "--pr", "--skip", "claude-repo-guard,skills"], { env: { FAKE_FAIL: "agent-cloud-kit" } });
 

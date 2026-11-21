@@ -31,19 +31,20 @@
 import { type Block, show } from "../banner.js";
 import { DECIDABLE, decide, DECISIONS, off, readDecisions, type Saved, undecided, writeDecisions } from "../decisions.js";
 import { behindUpstream, baseBranch, changedPaths, cloneFromOrigin, originUrl, publish, removeClone } from "../pr-clone.js";
-import { askPath, askPieces, askPlace, askReplace, askSkills, askSteps, type Place } from "../menu.js";
+import { askNoBun, askPath, askPieces, askPlace, askReplace, askSkills, askSteps, type Place } from "../menu.js";
 import { KitError, type Output, UsageError, warn } from "../output.js";
-import type { Context, PieceStatus, Step } from "../piece.js";
+import { type Context, FLOW_PACKAGE, type PieceStatus, SKILLS_MANAGER as SKILLS_MANAGER_PACKAGE, SKILLS_MANIFEST, type Step } from "../piece.js";
 import { cloudStatus, NAME as CLOUD } from "../pieces/cloud.js";
 import { guardStatus, NAME as GUARD } from "../pieces/guard.js";
 import { issueFlowStatus, NAME as FLOW } from "../pieces/issue-flow.js";
 import { keepOwn, NAME as SKILLS, ownInPick, skillsStatus } from "../pieces/skills.js";
 import { agentsMdStatus, NAME as AGENTS_MD } from "../pieces/agents-md.js";
 import { NAME as SKILLS_MANAGER, skillsManagerStatus } from "../pieces/skills-manager.js";
-import { mainCheckout, ownDependencies, packageManager, packageText, readJson } from "../repo.js";
+import { dependencyVersion, mainCheckout, ownDependencies, packageManager, packageText, readJson } from "../repo.js";
 import { download, failedOutput, repoMode, runInstall, setVerbose, toolText } from "../tools.js";
-import { CLOUD_PACKAGE, toolVersion } from "../runner-mode.js";
+import { CLOUD_CONFIG, CLOUD_PACKAGE, GUARD_MANIFEST, toolVersion } from "../runner-mode.js";
 import { commitLine, DECISIONS_LINE } from "../commit-texts.js";
+import { chooseRunner, RUNNER_FILE, writeRunnerConfig } from "@ramon-sg/runner";
 import { type Progress, progressFor } from "../progress.js";
 import { phrases, stepLabel, ui } from "../texts/index.js";
 
@@ -362,6 +363,41 @@ export async function sync(options: SyncOptions, out: Output): Promise<number> {
 }
 
 /**
+ * Whether the repo is new to the kitchen: no runner.json and none of the tools or the skills
+ * in the places a legacy repo keeps them. It reads the disk only, before any piece is looked at:
+ * the pieces' own lookups would run legacy versions of the tools (with npx, which a repo that
+ * is about to run on Bun may not have), and `--skip` or the repo's decisions cannot hide a tool.
+ * @param root - The repo.
+ * @returns True if it should be born in runner mode.
+ */
+function isNewRepo(root: string): boolean {
+  if (repoMode(root).kind !== "legacy") return false;
+  const pkg = readJson(root, "package.json");
+  if ([FLOW_PACKAGE, SKILLS_MANAGER_PACKAGE].some((name) => dependencyVersion(pkg, name) !== null)) return false;
+  return [CLOUD_CONFIG, GUARD_MANIFEST, SKILLS_MANIFEST].every((file) => readJson(root, file) === null);
+}
+
+/**
+ * Writes `.agents/runner.json` with the runner chosen (Bun if it is installed; without it, the
+ * person's answer in a terminal, else Node with a warning), so every tool installs in runner
+ * mode. `--dry-run` writes nothing.
+ * @param root - The repo.
+ * @param asks - Whether there is a terminal to ask in.
+ * @param dryRun - Whether to write nothing.
+ * @param out - Where to write.
+ * @returns True if the file was written, false if not (dry run), null if the person chose to leave.
+ */
+async function startRunnerMode(root: string, asks: boolean, dryRun: boolean, out: Output): Promise<boolean | null> {
+  if (dryRun) return false;
+  const chosen = await chooseRunner(asks ? { ask: askNoBun } : {});
+  if (chosen === null) return null;
+  if (chosen.warning !== null) warn(out, chosen.warning);
+  writeRunnerConfig(root, { runner: chosen.runner, tools: {}, extra: {} });
+  out.stdout(`${ui.runnerWritten(RUNNER_FILE, chosen.runner)}\n`);
+  return true;
+}
+
+/**
  * Looks at the pieces, asks, runs the steps and ends as the place says.
  * @param work - Where to work.
  * @param options - The options.
@@ -386,6 +422,11 @@ async function applyIn(work: Workplace, options: SyncOptions, out: Output): Prom
   const asks = out.interactive && !options.yes && !options.dryRun;
   const saves = asks && options.skip.length === 0;
   if (out.interactive) out.stdout(`${ui.checking}\n`);
+  // A new repo is written in runner mode before the pieces are looked at, so none of them works in legacy terms.
+  if (isNewRepo(root) && (await startRunnerMode(root, asks, options.dryRun, out)) === null) {
+    out.stdout(`${ui.nothingChanged}\n`);
+    return 1;
+  }
   let statuses = await statusesOf(root, skip);
   if (saved !== null && !asks && !options.dryRun) {
     const left = undecided(saved).filter((name) => statuses.some((status) => status.name === name && !status.installed));

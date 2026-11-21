@@ -154,6 +154,7 @@ export const en: Catalog = {
     return wrote ? "You picked no steps; only saved which pieces the repo uses." : "You picked nothing; nothing was changed.";
   },
   nothingChanged: "Nothing was changed.",
+  runnerWritten: (file, runner) => `New repo: wrote ${file} with the ${runner} runner; every tool installs with it.`,
   nothingChangedWarning: "nothing was changed.",
   cloning: (base) => `Working in a temporary copy of origin/${base}; your branch and your files are not touched.`,
   changes: "Changes in the PR:",
@@ -226,6 +227,10 @@ and the PR of --pr are always in Spanish.`,
     inPrHint: (base) => `recommended · starts from origin/${base}, does not touch your branch or your files`,
     inHere: "On the current branch, uncommitted",
     inHereHint: "you review them with git diff and commit them yourself",
+    noBun: "Bun is not installed. What should run this repo's tools?",
+    useNode: "Node (npx)",
+    useNodeHint: "you can move to Bun later with \"runner\": \"bun\" in .agents/runner.json",
+    leaveNoBun: "Leave; I install Bun and come back",
   },
   doctor: {
     allOk: "No check failed.",
