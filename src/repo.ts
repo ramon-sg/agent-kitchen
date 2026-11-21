@@ -97,19 +97,54 @@ export function dependencyVersion(pkg: Record<string, unknown> | null, name: str
 }
 
 /** The tools of the ecosystem: dependencies of a repo that only run them, not code of its own. */
-const ECOSYSTEM_TOOLS = ["@ramon-sg/issue-flow", "@ramon-sg/github-rest", "@ramon-sg/skills-manager", "@ramon-sg/claude-repo-guard", "agent-cloud-kit"];
+export const ECOSYSTEM_TOOLS = ["@ramon-sg/issue-flow", "@ramon-sg/github-rest", "@ramon-sg/skills-manager", "@ramon-sg/claude-repo-guard", "agent-cloud-kit"];
 
 /**
- * The names in `dependencies` and `devDependencies` of package.json that are not tools of the
- * ecosystem: what the repo itself needs installed.
+ * Whether the repo is a workspace root: `workspaces` in package.json, or a pnpm-workspace.yaml.
  * @param root - The repo.
- * @returns The names; none without package.json.
+ * @returns True if its packages may have dependencies of their own.
+ * @example hasWorkspaces(root) // true
+ */
+export function hasWorkspaces(root: string): boolean {
+  const workspaces = readJson(root, "package.json")?.workspaces;
+  if (Array.isArray(workspaces) ? workspaces.length > 0 : isObject(workspaces) && Array.isArray(workspaces.packages) && workspaces.packages.length > 0) return true;
+  return existsSync(join(root, "pnpm-workspace.yaml"));
+}
+
+/**
+ * What the repo itself needs installed: the names in `dependencies`, `devDependencies`,
+ * `optionalDependencies` and `peerDependencies` that are not tools of the ecosystem, and
+ * `workspaces` if it has any, since its packages have dependencies of their own.
+ * @param root - The repo.
+ * @returns The names (and "workspaces"); none without package.json.
  * @example ownDependencies(root) // ["react"]
  */
 export function ownDependencies(root: string): string[] {
   const pkg = readJson(root, "package.json");
-  const names = ["dependencies", "devDependencies"].flatMap((field) => (isObject(pkg?.[field]) ? Object.keys(pkg[field]) : []));
-  return [...new Set(names)].filter((name) => !ECOSYSTEM_TOOLS.includes(name));
+  const keys = (field: string): string[] => (isObject(pkg?.[field]) ? Object.keys(pkg[field]) : []);
+  const names = ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"].flatMap(keys).filter((name) => !ECOSYSTEM_TOOLS.includes(name));
+  return [...new Set([...names, ...(hasWorkspaces(root) ? ["workspaces"] : [])])];
+}
+
+/** The fields of package.json that hold dependencies. */
+const DEPENDENCY_FIELDS = ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"];
+
+/**
+ * Every dependency entry a package.json has, ecosystem tools included, and "workspaces" if it has
+ * any: whether the repo needs its lockfile and node_modules at all.
+ * @param root - The repo.
+ * @param pkg - The package.json, or null.
+ * @param without - Entries about to go, and the fields they go from.
+ * @returns The entries, as `<field>:<name>` (and "workspaces").
+ * @example dependencyEntries(root, { dependencies: { react: "19.0.0" } }) // ["dependencies:react"]
+ */
+export function dependencyEntries(root: string, pkg: Record<string, unknown> | null, without: { names: string[]; fields: string[] } = { names: [], fields: [] }): string[] {
+  const entries = DEPENDENCY_FIELDS.flatMap((field) => {
+    const deps = pkg?.[field];
+    if (!isObject(deps)) return [];
+    return Object.keys(deps).filter((name) => !(without.fields.includes(field) && without.names.includes(name))).map((name) => `${field}:${name}`);
+  });
+  return hasWorkspaces(root) ? [...entries, "workspaces"] : entries;
 }
 
 /** The lockfile of each package manager, in the order they are looked for. */
@@ -132,6 +167,47 @@ export function packageManager(root: string): string {
   const field = typeof pkg?.packageManager === "string" ? pkg.packageManager.split("@")[0] : undefined;
   if (field !== undefined && field !== "") return field;
   return LOCKFILES.find(([file]) => existsSync(join(root, file)))?.[1] ?? "npm";
+}
+
+/**
+ * The lockfiles the repo has, of any package manager.
+ * @param root - The repo.
+ * @returns Their names, relative to the repo.
+ * @example lockfiles(root) // ["package-lock.json"]
+ */
+export function lockfiles(root: string): string[] {
+  return LOCKFILES.map(([file]) => file).filter((file) => existsSync(join(root, file)));
+}
+
+/**
+ * Changes package.json and writes it back as it was written: same indentation, line endings
+ * and final newline. Nothing is written if the change leaves it equal.
+ * @param root - The repo.
+ * @param edit - Changes the parsed file in place.
+ * @returns Whether the file changed; false without package.json.
+ * @example editPackage(root, (pkg) => delete pkg.devDependencies) // true
+ */
+export function editPackage(root: string, edit: (pkg: Record<string, unknown>) => void): boolean {
+  const pkg = readJson(root, "package.json");
+  if (pkg === null) return false;
+  const before = JSON.stringify(pkg);
+  edit(pkg);
+  if (JSON.stringify(pkg) === before) return false;
+  writePackage(root, pkg);
+  return true;
+}
+
+/**
+ * Writes package.json with the indentation, line endings and final newline its text has now.
+ * @param root - The repo.
+ * @param pkg - The new content.
+ */
+function writePackage(root: string, pkg: Record<string, unknown>): void {
+  const text = readFileSync(join(root, "package.json"), "utf8");
+  const indent = /^([ \t]+)"/m.exec(text)?.[1] ?? "  ";
+  const eol = text.includes("\r\n") ? "\r\n" : "\n";
+  const json = JSON.stringify(pkg, null, indent).replace(/\n/g, eol);
+  writeFileSync(join(root, "package.json"), /\r?\n$/.test(text) || text === "" ? `${json}${eol}` : json);
 }
 
 /**
@@ -177,9 +253,6 @@ export function installedVersion(root: string, name: string): string | null {
 export function setDependency(root: string, name: string, version: string): void {
   const pkg = readJson(root, "package.json");
   if (pkg === null) throw new KitError(ui.repo.noPackage);
-  const text = readFileSync(join(root, "package.json"), "utf8");
-  const indent = /^([ \t]+)"/m.exec(text)?.[1] ?? "  ";
-  const eol = text.includes("\r\n") ? "\r\n" : "\n";
   const [deps, dev] = [pkg.dependencies, pkg.devDependencies];
   if (isObject(dev) && typeof dev[name] === "string") dev[name] = version;
   else if (isObject(deps) && typeof deps[name] === "string") deps[name] = version;
@@ -189,6 +262,5 @@ export function setDependency(root: string, name: string, version: string): void
     entries.splice(at === -1 ? entries.length : at, 0, [name, version]);
     pkg.devDependencies = Object.fromEntries(entries);
   }
-  const json = JSON.stringify(pkg, null, indent).replace(/\n/g, eol);
-  writeFileSync(join(root, "package.json"), /\r?\n$/.test(text) || text === "" ? `${json}${eol}` : json);
+  writePackage(root, pkg);
 }

@@ -10,9 +10,15 @@ type MaybeVersion = string | null;
 
 /** What a step does, one kind per thing a piece can offer. */
 export type StepText =
+  | { kind: "runner-migrate"; runner: string; tools: string[] }
+  | { kind: "runner-finish"; left: string[] }
+  | { kind: "runner-rewrite"; runner: string; tools: string[] }
+  | { kind: "runner-change"; from: string; to: string; tools: string[] }
   | { kind: "skills-manager-create"; version: string }
   | { kind: "skills-manager-add"; version: string }
   | { kind: "skills-manager-bump"; from: string; to: string }
+  | { kind: "skills-manager-pin"; version: string }
+  | { kind: "skills-manager-update"; from: string; to: string }
   | { kind: "flow-install"; version: string }
   | { kind: "flow-update"; from: string; to: string }
   | { kind: "flow-repair"; version: string }

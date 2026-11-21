@@ -14,8 +14,18 @@
  * reads one line per step. `--verbose` shows it as it comes.
  */
 import { spawn } from "node:child_process";
-import { effectiveRunner, readRunnerConfig, RunnerFileError, toolCommand, toolCommandText, type Runner } from "@ramon-sg/runner";
+import { realpathSync } from "node:fs";
+import { effectiveRunner, readRunnerConfig, RunnerFileError, setTool, toolCommand, toolCommandText, writeRunnerConfig, type Runner, type RunnerConfig } from "@ramon-sg/runner";
 import { KitError } from "./output.js";
+
+/** The real path of a folder, or the path itself if it does not exist. */
+function realPath(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return path;
+  }
+}
 
 /** A release version. */
 const VERSION = /^(\d+)\.(\d+)\.(\d+)$/;
@@ -132,6 +142,8 @@ export function compareSemver(left: string, right: string): number {
 function run(program: string, args: string[], options: { cwd?: string; timeout?: number; env?: NodeJS.ProcessEnv; unset?: string[]; inherit?: boolean } = {}): Promise<Finished> {
   return new Promise((resolve) => {
     const env = { ...process.env, ...options.env };
+    // A tool in a clone must work in its cwd: agent-cloud-kit prefers this one, and it names the checkout.
+    if (options.cwd !== undefined && env.CLAUDE_PROJECT_DIR !== undefined && realPath(env.CLAUDE_PROJECT_DIR) !== realPath(options.cwd)) delete env.CLAUDE_PROJECT_DIR;
     for (const name of options.unset ?? []) delete env[name];
     const child = spawn(program, args, { cwd: options.cwd, env, stdio: options.inherit === true ? "inherit" : ["ignore", "pipe", "pipe"] });
     let out = "";
@@ -236,70 +248,149 @@ export function npmDependencies(spec: string): Promise<Record<string, string> | 
 }
 
 /**
+ * Every version a package has on npm, as its packument lists them.
+ * @param name - The package.
+ * @returns The versions, in no order, or null if npm cannot tell.
+ * @example await npmVersions("@ramon-sg/issue-flow") // ["0.5.1", "0.5.2", "0.6.0"]
+ */
+export function npmVersions(name: string): Promise<string[] | null> {
+  return once(`npm-versions:${name}`, async () => {
+    const versions = (await packument(name))?.versions;
+    return isRecord(versions) ? Object.keys(versions) : null;
+  });
+}
+
+/**
+ * Every `vX.Y.Z` tag of a GitHub repo.
+ * @param repo - The repo, as owner/name.
+ * @returns The versions without the `v`, oldest first, or null if git cannot reach it.
+ * @example await tagVersions("ramon-sg/agent-skills") // ["0.1.0", "0.2.0"]
+ */
+export function tagVersions(repo: string): Promise<string[] | null> {
+  return once(`tags:${repo}`, async () => {
+    const result = await run("git", ["ls-remote", "--tags", "--refs", `https://github.com/${repo}.git`], { timeout: LOOKUP_TIMEOUT_MS, env: { GIT_TERMINAL_PROMPT: "0" } });
+    if (result.status !== 0) return null;
+    return result.out.split("\n").flatMap((line) => TAG_REF.exec(line.trim())?.slice(1, 2) ?? []).sort(compareVersions);
+  });
+}
+
+/**
  * The highest `vX.Y.Z` tag of a GitHub repo.
  * @param repo - The repo, as owner/name.
  * @returns The version without the `v`, or null if it has none or git cannot reach it.
  * @example await latestTag("ramon-sg/agent-skills") // "0.1.0"
  */
-export function latestTag(repo: string): Promise<string | null> {
-  return once(`tag:${repo}`, async () => {
-    const result = await run("git", ["ls-remote", "--tags", "--refs", `https://github.com/${repo}.git`], { timeout: LOOKUP_TIMEOUT_MS, env: { GIT_TERMINAL_PROMPT: "0" } });
-    if (result.status !== 0) return null;
-    const versions = result.out.split("\n").flatMap((line) => TAG_REF.exec(line.trim())?.slice(1, 2) ?? []);
-    return versions.sort(compareVersions).at(-1) ?? null;
-  });
+export async function latestTag(repo: string): Promise<string | null> {
+  return (await tagVersions(repo))?.at(-1) ?? null;
 }
 
 /**
  * How a repo runs its tools: with the runner its `.agents/runner.json` names (Bun when it names
- * none), or, without that file, with npx as before.
+ * none) and the versions it pins, or, without that file, with npx as before.
  */
-export type RepoMode = { kind: "runner"; runner: Runner } | { kind: "legacy" };
+export type RepoMode = { kind: "runner"; runner: Runner; tools: Record<string, string> } | { kind: "legacy" };
+
+/** The runner a `--dry-run` on a new repo pretends the repo has, without writing the file. */
+let preview: Runner | null = null;
+
+/**
+ * Makes `repoMode` answer runner mode, with this runner and no pinned tools, for a repo with no
+ * runner.json: what a dry run on a new repo shows is what the real run would do. It is process
+ * state, so whoever sets it clears it with null.
+ * @param runner - The runner to pretend, or null to stop.
+ */
+export function previewRunner(runner: Runner | null): void {
+  preview = runner;
+}
 
 /**
  * How a repo runs its tools. Every read of `.agents/runner.json` goes through here.
  * @param root - The repo.
  * It re-reads the file on every call, so the mode can change in the middle of a run (for example
  * after a tool's apply writes runner.json).
- * @returns Runner mode with its runner, or legacy mode if the repo has no runner.json.
+ * @returns Runner mode with its runner and pinned versions, or legacy mode if the repo has no runner.json.
  * @throws KitError If runner.json exists but cannot be used (the one place that turns a RunnerFileError into one).
- * @example repoMode(root) // { kind: "runner", runner: "bun" }
+ * @example repoMode(root) // { kind: "runner", runner: "bun", tools: { "agent-cloud-kit": "1.0.0" } }
  */
 export function repoMode(root: string): RepoMode {
-  let config;
+  const config = runnerConfig(root);
+  if (config === null && preview !== null) return { kind: "runner", runner: preview, tools: {} };
+  return config === null ? { kind: "legacy" } : { kind: "runner", runner: effectiveRunner(config), tools: { ...config.tools } };
+}
+
+/**
+ * Reads `.agents/runner.json`.
+ * @param root - The repo.
+ * @returns The config, or null if the repo has none.
+ * @throws KitError If it exists but cannot be used.
+ */
+function runnerConfig(root: string): RunnerConfig | null {
   try {
-    config = readRunnerConfig(root);
+    return readRunnerConfig(root);
   } catch (error) {
     if (error instanceof RunnerFileError) throw new KitError(error.message);
     throw error;
   }
-  return config === null ? { kind: "legacy" } : { kind: "runner", runner: effectiveRunner(config) };
+}
+
+/**
+ * Adds a tool to `.agents/runner.json` or raises its version there; never lowers it, and
+ * writes nothing if it does not change.
+ * @param root - The repo, in runner mode.
+ * @param pkg - The tool's package.
+ * @param version - Its exact version.
+ * @returns Whether the file changed.
+ * @throws KitError If the repo has no usable runner.json.
+ * @example raiseTool(root, "@ramon-sg/github-rest", "0.7.0") // true
+ */
+export function raiseTool(root: string, pkg: string, version: string): boolean {
+  const config = runnerConfig(root);
+  if (config === null) throw new KitError(`${root}/.agents/runner.json is missing`);
+  const next = setTool(config, pkg, version);
+  if (next.changed) writeRunnerConfig(root, next.config);
+  return next.changed;
+}
+
+/**
+ * Writes the runner of `.agents/runner.json`, keeping its tools and everything else in it.
+ * @param root - The repo, in runner mode.
+ * @param runner - The runner to write.
+ * @returns Whether the file changed.
+ * @throws KitError If the repo has no usable runner.json.
+ * @example setRunner(root, "node") // true
+ */
+export function setRunner(root: string, runner: Runner): boolean {
+  const config = runnerConfig(root);
+  if (config === null) throw new KitError(`${root}/.agents/runner.json is missing`);
+  if (config.runner === runner) return false;
+  writeRunnerConfig(root, { ...config, runner });
+  return true;
 }
 
 /**
  * Splits a spec into its package and its version, at the last `@` that does not start it.
  * @param spec - The package and its version, as `name@x.y.z` or `@scope/name@x.y.z`.
  * @returns The package and the version.
- * @throws {Error} For a spec without a version: a runner takes none.
+ * @throws {Error} For a spec without an exact version (a range, a tag, a GitHub spec): a runner takes none of those.
  * @example splitSpec("@ramon-sg/issue-flow@0.2.0") // { pkg: "@ramon-sg/issue-flow", version: "0.2.0" }
  */
 function splitSpec(spec: string): { pkg: string; version: string } {
   const at = spec.lastIndexOf("@");
-  if (at <= 0 || at === spec.length - 1) throw new Error(`a runner needs a spec with a version: ${spec}`);
+  if (at <= 0 || !isExactVersion(spec.slice(at + 1))) throw new Error(`a runner needs a spec with a version: ${spec}`);
   return { pkg: spec.slice(0, at), version: spec.slice(at + 1) };
 }
 
 /**
- * The program and arguments that run a tool in the repo. A `github:` spec always runs with
- * `npx --yes`, even in runner mode, until claude-repo-guard is on npm (Part B, Task B1).
+ * The program and arguments that run a tool in the repo.
  * @param root - The repo.
  * @param args - The spec and the tool's arguments.
- * @returns `npx --yes <args>` in legacy mode or for a GitHub spec, else the runner's command.
+ * @returns `npx --yes <args>` in legacy mode, else the runner's command.
+ * @throws {Error} In runner mode, for a spec without an exact version.
  */
 function toolInvocation(root: string, args: string[]): { file: string; args: string[] } {
   const mode = repoMode(root);
   const [spec = "", ...rest] = args;
-  if (mode.kind === "legacy" || spec.startsWith("github:")) return { file: "npx", args: ["--yes", ...args] };
+  if (mode.kind === "legacy") return { file: "npx", args: ["--yes", ...args] };
   const { pkg, version } = splitSpec(spec);
   return toolCommand(mode.runner, pkg, version, rest);
 }
@@ -308,14 +399,13 @@ function toolInvocation(root: string, args: string[]): { file: string; args: str
  * The command that runs a tool in the repo, to show to the person so they can run it by hand.
  * @param root - The repo.
  * @param args - The spec and the tool's arguments.
- * A `github:` spec is shown with `npx` even in runner mode, until claude-repo-guard is on npm (Part B, Task B1).
- * @returns `npx <args>` in legacy mode or for a GitHub spec, else the runner's command, quoted for a shell.
+ * @returns `npx <args>` in legacy mode, else the runner's command, quoted for a shell.
  * @example toolText(root, ["agent-cloud-kit@1.1.0", "init"]) // "bunx --bun agent-cloud-kit@1.1.0 init"
  */
 export function toolText(root: string, args: string[]): string {
   const mode = repoMode(root);
   const [spec = "", ...rest] = args;
-  if (mode.kind === "legacy" || spec.startsWith("github:")) return `npx ${args.join(" ")}`;
+  if (mode.kind === "legacy") return `npx ${args.join(" ")}`;
   const { pkg, version } = splitSpec(spec);
   return toolCommandText(mode.runner, pkg, version, rest);
 }
@@ -331,8 +421,7 @@ export function toolText(root: string, args: string[]): string {
  */
 export function download(root: string, spec: string): Promise<void> {
   const mode = repoMode(root);
-  // A GitHub spec downloads with npx even in runner mode, until claude-repo-guard is on npm (Part B, Task B1).
-  if (mode.kind === "runner" && !spec.startsWith("github:")) {
+  if (mode.kind === "runner") {
     splitSpec(spec);
     if (mode.runner === "bun") return Promise.resolve();
   }

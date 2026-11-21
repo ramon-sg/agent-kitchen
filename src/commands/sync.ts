@@ -5,8 +5,9 @@
  * draft (see pr-clone.ts), `--here` in the person's checkout, leaving the changes uncommitted.
  * In a terminal, without either, it asks; with `--yes` or without a terminal, or without an
  * origin, it works here. Here it warns if the checkout has changes or is behind its upstream.
- * Then it looks at each piece (the version of skills-manager, the issue flow, agent-cloud-kit,
- * claude-repo-guard, the skills, the rule in AGENTS.md) with
+ * Then it looks at each piece (the move of a legacy repo to `.agents/runner.json`, the version
+ * of skills-manager, the issue flow, agent-cloud-kit, claude-repo-guard, the skills, the rule in
+ * AGENTS.md) with
  * every lookup at once, shows what the repo has, and offers the steps that install what is
  * missing or update what is behind. In a terminal it asks first, all in one go: everything
  * suggested, or pick the steps and the skills; whether to replace the repo's own skills.
@@ -28,21 +29,26 @@
  * uses, writes all of them to the file, and then goes on as usual.
  * The run ends in a block with Kuro (banner.ts): how it went and what is left to do.
  */
+import { existsSync, rmSync } from "node:fs";
+import { join } from "node:path";
 import { type Block, show } from "../banner.js";
 import { DECIDABLE, decide, DECISIONS, off, readDecisions, type Saved, undecided, writeDecisions } from "../decisions.js";
 import { behindUpstream, baseBranch, changedPaths, cloneFromOrigin, originUrl, publish, removeClone } from "../pr-clone.js";
-import { askPath, askPieces, askPlace, askReplace, askSkills, askSteps, type Place } from "../menu.js";
+import { askNoBun, askPath, askPieces, askPlace, askReplace, askSkills, askSteps, type Place } from "../menu.js";
 import { KitError, type Output, UsageError, warn } from "../output.js";
-import type { Context, PieceStatus, Step } from "../piece.js";
+import { type Context, FLOW_PACKAGE, type PieceStatus, SKILLS_MANAGER as SKILLS_MANAGER_PACKAGE, SKILLS_MANIFEST, type Step } from "../piece.js";
 import { cloudStatus, NAME as CLOUD } from "../pieces/cloud.js";
 import { guardStatus, NAME as GUARD } from "../pieces/guard.js";
 import { issueFlowStatus, NAME as FLOW } from "../pieces/issue-flow.js";
 import { keepOwn, NAME as SKILLS, ownInPick, skillsStatus } from "../pieces/skills.js";
 import { agentsMdStatus, NAME as AGENTS_MD } from "../pieces/agents-md.js";
 import { NAME as SKILLS_MANAGER, skillsManagerStatus } from "../pieces/skills-manager.js";
-import { mainCheckout, ownDependencies, packageManager, packageText, readJson } from "../repo.js";
-import { download, failedOutput, repoMode, runInstall, setVerbose } from "../tools.js";
-import { commitLine, DECISIONS_LINE } from "../commit-texts.js";
+import { MOVED_PIECES, NAME as RUNNER, runnerStatus } from "../pieces/runner.js";
+import { dependencyEntries, dependencyVersion, mainCheckout, ownDependencies, packageManager, packageText, readJson } from "../repo.js";
+import { download, failedOutput, isExactVersion, previewRunner, repoMode, runInstall, setVerbose, toolText } from "../tools.js";
+import { CLOUD_CONFIG, CLOUD_PACKAGE, GUARD_MANIFEST, toolVersion } from "../runner-mode.js";
+import { commitLine, DECISIONS_LINE, runnerLine } from "../commit-texts.js";
+import { chooseRunner, RUNNER_FILE, type Runner, writeRunnerConfig } from "@ramon-sg/runner";
 import { type Progress, progressFor } from "../progress.js";
 import { phrases, stepLabel, ui } from "../texts/index.js";
 
@@ -59,15 +65,21 @@ export interface SyncOptions {
   here: boolean;
   /** Ask which pieces the repo uses, save the answer, then go on as usual. */
   pieces: boolean;
+  /** Force the runner: a new repo starts with it, a legacy repo moves with it, a repo in runner mode changes to it. */
+  runner?: Runner;
 }
 
-/** Every piece, in the order its steps run. */
-const PIECES = [SKILLS_MANAGER, FLOW, CLOUD, GUARD, SKILLS, AGENTS_MD];
+/** The kinds of the steps `--runner` makes: the move, and the change or rewrite of a repo in runner mode. */
+const RUNNER_CHANGES = ["runner-change", "runner-rewrite"];
+const RUNNER_STEPS = ["runner-migrate", ...RUNNER_CHANGES];
+
+/** Every piece, in the order its steps run: the move to runner.json first, so the rest run after it. */
+const PIECES = [RUNNER, SKILLS_MANAGER, FLOW, CLOUD, GUARD, SKILLS, AGENTS_MD];
 
 /**
  * The names `--skip` takes.
  * @returns The pieces' names.
- * @example pieceNames() // ["skills-manager", "issue-flow", "agent-cloud-kit", "claude-repo-guard", "skills", "agents-md"]
+ * @example pieceNames() // ["runner", "skills-manager", "issue-flow", "agent-cloud-kit", "claude-repo-guard", "skills", "agents-md"]
  */
 export function pieceNames(): string[] {
   return [...PIECES];
@@ -76,12 +88,14 @@ export function pieceNames(): string[] {
 /**
  * Each piece's status, with every lookup at once. skills-manager, the guard's step and the
  * rule in AGENTS.md depend on whether the flow is about to be installed (it writes
- * package.json), so they wait for the flow's status.
+ * package.json), so they wait for the flow's status. While the move to runner.json is offered,
+ * the tools it moves offer no step of their own: it takes each one to its latest.
  * @param root - The repo.
  * @param skip - The pieces left out.
+ * @param runnerOption - The runner `--runner` names, if it did.
  * @returns The statuses, in the pieces' order.
  */
-async function statusesOf(root: string, skip: string[]): Promise<PieceStatus[]> {
+async function statusesOf(root: string, skip: string[], runnerOption?: Runner): Promise<PieceStatus[]> {
   const flow = skip.includes(FLOW) ? null : issueFlowStatus(root);
   const flowComing = (flow ?? Promise.resolve(null)).then((status) => status !== null && !status.installed && status.steps.length > 0);
   const skillsManager = skip.includes(SKILLS_MANAGER) ? null : flowComing.then((coming) => skillsManagerStatus(root, !skip.includes(SKILLS), coming));
@@ -89,8 +103,17 @@ async function statusesOf(root: string, skip: string[]): Promise<PieceStatus[]> 
   const skills = skip.includes(SKILLS) ? null : skillsStatus(root, !skip.includes(FLOW));
   const guard = skip.includes(GUARD) ? null : flowComing.then((coming) => guardStatus(root, coming));
   const agentsMd = skip.includes(AGENTS_MD) ? null : flowComing.then((coming) => agentsMdStatus(root, coming));
-  const all = await Promise.all([skillsManager, flow, cloud, guard, skills, agentsMd]);
-  return all.flatMap((status) => status ?? []);
+  const runner = skip.includes(RUNNER) ? null : runnerStatus(root, skip, runnerOption);
+  const [moving, ...rest] = await Promise.all([runner, skillsManager, flow, cloud, guard, skills, agentsMd]);
+  // In runner mode, finishing a move cut short runs last, after the tools it left without an entry; a change of runner runs first, so the other steps already use the new one.
+  const changing = moving?.steps.some((step) => step.text.kind === "runner-change" || step.text.kind === "runner-rewrite") === true;
+  const statuses = (moving?.installed === true && !changing ? [...rest, moving] : [moving, ...rest]).flatMap((status) => status ?? []);
+  if (moving === null || !moving.steps.some((step) => step.text.kind === "runner-migrate")) return statuses;
+  for (const status of statuses.filter((each) => MOVED_PIECES.includes(each.name) && each.steps.length > 0)) {
+    status.steps = [];
+    if (status.installed) status.state += ui.pieces.runner.movedByRunner;
+  }
+  return statuses;
 }
 
 /**
@@ -158,11 +181,12 @@ function savedMessage(commits: boolean): string {
  * run wrote it, in the commit's texts (not the interface's).
  * @param done - The steps that worked.
  * @param wrote - Whether the decisions file was written in this run.
+ * @param runner - The runner of the runner.json this run created, if it did.
  * @returns The lines.
  * @example commitLabels([], true) // ["Guardar qué piezas usa el repo en .agents/kitchen.json"]
  */
-export function commitLabels(done: Pick<Step, "text">[], wrote: boolean): string[] {
-  const lines = done.map((step) => commitLine(step.text));
+export function commitLabels(done: Pick<Step, "text">[], wrote: boolean, runner: string | null = null): string[] {
+  const lines = [...(runner === null ? [] : [runnerLine(runner)]), ...done.map((step) => commitLine(step.text))];
   return wrote ? [...lines, DECISIONS_LINE] : lines;
 }
 
@@ -341,6 +365,21 @@ export async function sync(options: SyncOptions, out: Output): Promise<number> {
   const root = mainCheckout(options.cwd, "agent-kitchen apply");
   repoMode(root); // an unusable runner.json stops the run here, before anything is asked or changed
   setVerbose(options.verbose);
+  try {
+    return await syncIn(root, options, out);
+  } finally {
+    previewRunner(null);
+  }
+}
+
+/**
+ * The rest of the command, once the repo is known and usable.
+ * @param root - The repo.
+ * @param options - The options.
+ * @param out - Where to write and ask.
+ * @returns 0, or 1 if a step failed or the person cancelled.
+ */
+async function syncIn(root: string, options: SyncOptions, out: Output): Promise<number> {
   const place = await choosePlace(root, options, out);
   if (place === null) {
     out.stdout(`${ui.nothingChanged}\n`);
@@ -358,6 +397,44 @@ export async function sync(options: SyncOptions, out: Output): Promise<number> {
   } finally {
     if (!work.keep) removeClone(work.root);
   }
+}
+
+/**
+ * Whether the repo is new to the kitchen: no runner.json and none of the tools or the skills
+ * in the places a legacy repo keeps them. It reads the disk only, before any piece is looked at:
+ * the pieces' own lookups would run legacy versions of the tools (with npx, which a repo that
+ * is about to run on Bun may not have), and `--skip` or the repo's decisions cannot hide a tool.
+ * @param root - The repo.
+ * @returns True if it should be born in runner mode.
+ */
+function isNewRepo(root: string): boolean {
+  if (repoMode(root).kind !== "legacy") return false;
+  const pkg = readJson(root, "package.json");
+  if ([FLOW_PACKAGE, SKILLS_MANAGER_PACKAGE].some((name) => dependencyVersion(pkg, name) !== null)) return false;
+  return [CLOUD_CONFIG, GUARD_MANIFEST, SKILLS_MANIFEST].every((file) => readJson(root, file) === null);
+}
+
+/**
+ * Settles the runner of a new repo: Bun if it is installed; without it, the person's answer in
+ * a terminal, else Node with a warning. With `--dry-run` nothing is written or asked: the repo
+ * only pretends to have that runner, so the pieces show what the real run would do.
+ * Otherwise `.agents/runner.json` is written, so every tool installs in runner mode.
+ * @param root - The repo.
+ * @param asks - Whether there is a terminal to ask in.
+ * @param dryRun - Whether to write nothing.
+ * @param out - Where to write.
+ * @param forced - The runner `--runner` names: it is used as it is, with no look at Bun and no question.
+ * @returns The runner, or null if the person chose to leave.
+ */
+async function startRunnerMode(root: string, asks: boolean, dryRun: boolean, out: Output, forced?: Runner): Promise<Runner | null> {
+  const chosen = forced === undefined ? await chooseRunner(asks ? { ask: askNoBun } : {}) : { runner: forced, warning: null };
+  if (chosen === null) return null;
+  if (chosen.warning !== null) warn(out, chosen.warning);
+  if (dryRun) {
+    previewRunner(chosen.runner);
+    out.stdout(`${ui.runnerWillWrite(RUNNER_FILE, chosen.runner)}\n`);
+  } else writeRunnerConfig(root, { runner: chosen.runner, tools: {}, extra: {} });
+  return chosen.runner;
 }
 
 /**
@@ -385,12 +462,28 @@ async function applyIn(work: Workplace, options: SyncOptions, out: Output): Prom
   const asks = out.interactive && !options.yes && !options.dryRun;
   const saves = asks && options.skip.length === 0;
   if (out.interactive) out.stdout(`${ui.checking}\n`);
-  let statuses = await statusesOf(root, skip);
+  // A new repo is written in runner mode before the pieces are looked at, so none of them works in legacy terms.
+  let created: Runner | null = null;
+  if (isNewRepo(root)) {
+    created = await startRunnerMode(root, asks, options.dryRun, out, options.runner);
+    if (created === null) {
+      out.stdout(`${ui.nothingChanged}\n`);
+      return 1;
+    }
+  }
+  // The file this run wrote is only worth keeping if a step runs: a run that ends without one leaves nothing behind.
+  const wroteRunner = created !== null && !options.dryRun;
+  const dropRunner = (): void => {
+    if (wroteRunner) rmSync(join(root, RUNNER_FILE), { force: true });
+  };
+  // A new repo was just written with its runner: nothing in it is there to rewrite.
+  const forced = created === null ? options.runner : undefined;
+  let statuses = await statusesOf(root, skip, forced);
   if (saved !== null && !asks && !options.dryRun) {
     const left = undecided(saved).filter((name) => statuses.some((status) => status.name === name && !status.installed));
     if (left.length > 0) {
       skip.push(...left);
-      statuses = await statusesOf(root, skip);
+      statuses = await statusesOf(root, skip, forced);
       out.stdout(`${ui.undecided(left)}\n`);
     }
   }
@@ -401,13 +494,20 @@ async function applyIn(work: Workplace, options: SyncOptions, out: Output): Prom
       for (const step of status.steps) step.fresh = true;
     }
   }
+  if (options.runner !== undefined && created === null && !statuses.some((status) => status.steps.some((step) => RUNNER_STEPS.includes(step.text.kind)))) {
+    const state = statuses.find((status) => status.name === RUNNER)?.state;
+    warn(out, ui.runnerIgnored(skip.includes(RUNNER) ? ui.runnerIgnoredSkipped : (state ?? ui.runnerIgnoredNone)));
+  }
   printStatus(statuses, off(saved).filter((name) => !options.skip.includes(name)), out);
-  const steps = statuses.flatMap((status) => status.steps);
+  // The end of a move cut short runs last, after the steps that pin what it waits for.
+  const all = statuses.flatMap((status) => status.steps);
+  const steps = [...all.filter((step) => step.text.kind !== "runner-finish"), ...all.filter((step) => step.text.kind === "runner-finish")];
   const progress = progressFor(out, options.verbose);
   // The next step for the cloud, said at the end of a run in the checkout; read then, since a step may install it.
   const cloud = (): Pick<Block, "next"> => (work.kind === "here" && !options.dryRun ? cloudNext(root, skip) : {});
   // In a clone, a run that only wrote the decisions file still ends in a PR.
   const endWithoutSteps = async (title: string, lines: string[] = []): Promise<number> => {
+    dropRunner();
     if (work.kind === "pr" && wrote) {
       out.stdout(`${[title, ...lines].join("\n")}\n`);
       return openPr(work, commitLabels([], true), [], progress, out);
@@ -423,21 +523,28 @@ async function applyIn(work: Workplace, options: SyncOptions, out: Output): Prom
   if (saves && Array.isArray(chosen)) wrote = saveDecisions(root, saved, statuses, chosen, pr, out) || wrote;
   if (chosen === "leave") return endWithoutSteps(ui.noSteps("leave", wrote));
   if (chosen === null) {
+    dropRunner();
     if (wrote) return endWithoutSteps(ui.noSteps("leave", wrote));
     if (!options.dryRun && out.interactive) warn(out, ui.nothingChangedWarning);
     return options.dryRun || !out.interactive ? 0 : 1;
   }
   if (chosen.length === 0) return options.yes ? endWithoutSteps(ui.allSet, [ui.onlyOptional(steps.map(stepLabel))]) : endWithoutSteps(ui.noSteps("none", wrote));
+  if (wroteRunner && created !== null) out.stdout(`${ui.runnerWritten(RUNNER_FILE, created)}\n`);
   const pkgBefore = packageText(root);
+  const runnerBefore = existsSync(join(root, RUNNER_FILE));
   const failedSteps: Step[] = [];
   for (const step of chosen) {
     if (!(await runStep(root, step, progress, out))) failedSteps.push(step);
   }
   const failed = failedSteps.map(stepLabel);
-  if (work.kind === "pr") return openPr(work, commitLabels(chosen.filter((step) => !failedSteps.includes(step)), wrote), failed, progress, out);
-  const installFailed = packageText(root) !== pkgBefore && needsInstall(root) ? !(await install(root, progress, out)) : false;
+  // A runner.json this run wrote, before the steps (a new repo) or in one (the move), is not committed yet.
+  const moved = chosen.some((step) => step.piece === RUNNER && !RUNNER_CHANGES.includes(step.text.kind) && !failedSteps.includes(step));
+  // A runner.json this run wrote, in a step that failed after writing it too.
+  const runnerNew = wroteRunner || (!runnerBefore && existsSync(join(root, RUNNER_FILE)));
+  if (work.kind === "pr") return openPr(work, commitLabels(chosen.filter((step) => !failedSteps.includes(step)), wrote, wroteRunner ? created : null), failed, progress, out, moved);
+  const installFailed = packageText(root) !== pkgBefore && needsInstall(root, moved) ? !(await install(root, progress, out)) : false;
   if (installFailed) failed.push(phrases({ kind: "install-deps", manager: packageManager(root) }).menu);
-  show(out, { mood: failed.length === 0 ? "ok" : "error", title: ui.summary(failed), lines: [ui.next(installFailed ? packageManager(root) : null)], ...cloud() }, root);
+  show(out, { mood: failed.length === 0 ? "ok" : "error", title: ui.summary(failed), lines: [ui.next(installFailed ? packageManager(root) : null), ...(runnerNew ? [ui.runnerLeft(RUNNER_FILE)] : [])], ...cloud() }, root);
   return failed.length === 0 ? 0 : 1;
 }
 
@@ -448,18 +555,28 @@ async function applyIn(work: Workplace, options: SyncOptions, out: Output): Prom
  * @returns The block's `next`, or nothing.
  */
 function cloudNext(root: string, skip: string[]): Pick<Block, "next"> {
-  if (skip.includes(CLOUD) || readJson(root, ".claude/cloud.json") === null) return {};
+  if (skip.includes(CLOUD)) return {};
+  const runnerMode = repoMode(root).kind === "runner";
+  const version = runnerMode ? toolVersion(root, CLOUD_PACKAGE) : null;
+  if (version !== null) return { next: { label: ui.cloudNext, command: toolText(root, [`${CLOUD_PACKAGE}@${version}`, "prepare"]) } };
+  const config = readJson(root, ".claude/cloud.json");
+  if (config === null) return {};
+  // runner.json exists but does not pin it yet (a move cut short): the repo's runner, and the version cloud.json still has.
+  if (runnerMode) return { next: { label: ui.cloudNext, command: toolText(root, [typeof config.version === "string" && isExactVersion(config.version) ? `${CLOUD_PACKAGE}@${config.version}` : CLOUD_PACKAGE, "prepare"]) } };
   return { next: { label: ui.cloudNext, command: "npx agent-cloud-kit prepare" } };
 }
 
 /**
  * Whether the repo's install is worth running: in runner mode the tools run through bunx or
  * npx, so only dependencies of the repo's own need node_modules. Without runner.json, always.
+ * After the `runner` piece's step (the move, or its end), any dependency entry package.json
+ * keeps counts, an ecosystem tool used as a library included: that step kept its lockfile.
  * @param root - The repo.
+ * @param moved - Whether the `runner` piece's step worked in this run.
  * @returns Whether to install.
  */
-function needsInstall(root: string): boolean {
-  return repoMode(root).kind !== "runner" || ownDependencies(root).length > 0;
+function needsInstall(root: string, moved = false): boolean {
+  return repoMode(root).kind !== "runner" || ownDependencies(root).length > 0 || (moved && dependencyEntries(root, readJson(root, "package.json")).length > 0);
 }
 
 /**
@@ -486,9 +603,10 @@ async function install(root: string, progress: Progress, out: Output): Promise<b
  * @param failed - The steps that failed, as the interface names them.
  * @param progress - How progress is shown, for the install.
  * @param out - Where to write.
+ * @param moved - Whether the `runner` piece's step worked in this run (see needsInstall).
  * @returns 0, or 1 if a step, the install, git or the PR failed.
  */
-async function openPr(work: Extract<Workplace, { kind: "pr" }>, done: string[], failed: string[], progress: Progress, out: Output): Promise<number> {
+async function openPr(work: Extract<Workplace, { kind: "pr" }>, done: string[], failed: string[], progress: Progress, out: Output, moved = false): Promise<number> {
   const end = (block: Block): void => show(out, block, work.root);
   const before = changedPaths(work.root);
   if (before.length === 0) {
@@ -501,7 +619,7 @@ async function openPr(work: Extract<Workplace, { kind: "pr" }>, done: string[], 
     return 1;
   }
   // A clone starts without node_modules, and the repo's hooks may need them.
-  if (packageText(work.root) !== null && needsInstall(work.root) && !(await install(work.root, progress, out))) {
+  if (packageText(work.root) !== null && needsInstall(work.root, moved) && !(await install(work.root, progress, out))) {
     work.keep = true;
     end({ mood: "error", title: ui.summary([phrases({ kind: "install-deps", manager: packageManager(work.root) }).menu]), lines: [ui.prNotOpened("install", work.root)] });
     return 1;

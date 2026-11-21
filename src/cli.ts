@@ -14,11 +14,10 @@ import { doctor } from "./commands/doctor.js";
 import { pieceNames, sync } from "./commands/sync.js";
 import { langFlag, LangError, resolveLang } from "./lang.js";
 import { KitError, type Output, processOutput, UsageError } from "./output.js";
-import { FLOW_PACKAGE, GENERAL_CATALOGS } from "./piece.js";
-import { PACKAGE as CLOUD_PACKAGE } from "./pieces/cloud.js";
-import { REPO as GUARD_REPO } from "./pieces/guard.js";
+import { FLOW_PACKAGE, GENERAL_CATALOGS, SKILLS_MANAGER } from "./piece.js";
+import { CLOUD_PACKAGE, GITHUB_REST, GUARD_PACKAGE, offeredVersion } from "./runner-mode.js";
 import { ui, useLang } from "./texts/index.js";
-import { compareVersions, isRelease, latestTag, npmLatest, npmLatestExact } from "./tools.js";
+import { compareVersions, isRelease, latestTag, npmLatest, repoMode } from "./tools.js";
 
 /** This package on npm. */
 const PACKAGE = "agent-kitchen";
@@ -36,12 +35,19 @@ function ownVersion(): string {
 }
 
 /**
- * Starts the lookups of the latest versions, so they run while this one checks its own.
+ * Starts the lookups of the versions the pieces may go to, so they run while this one checks
+ * its own: from npm in runner mode, below each tool's ceiling in a legacy repo (the guard's
+ * from GitHub). A runner.json that cannot be read is left for the command to report.
  */
 function startLookups(): void {
-  void npmLatest(FLOW_PACKAGE);
-  void npmLatestExact(CLOUD_PACKAGE);
-  void latestTag(GUARD_REPO);
+  const root = repoTop() ?? process.cwd();
+  let runner = false;
+  try {
+    runner = repoMode(root).kind === "runner";
+  } catch {
+    return;
+  }
+  for (const pkg of [FLOW_PACKAGE, CLOUD_PACKAGE, GUARD_PACKAGE, ...(runner ? [SKILLS_MANAGER, GITHUB_REST] : [])]) void offeredVersion(root, pkg).catch(() => null);
   for (const catalog of GENERAL_CATALOGS) void latestTag(catalog);
 }
 
@@ -91,7 +97,7 @@ async function main(argv: string[], out: Output): Promise<number> {
   const { values, positionals } = parseArgs({
     args: argv,
     allowPositionals: true,
-    options: { yes: { type: "boolean" }, "dry-run": { type: "boolean" }, commit: { type: "boolean" }, pr: { type: "boolean" }, here: { type: "boolean" }, verbose: { type: "boolean", short: "v" }, skip: { type: "string" }, pieces: { type: "boolean" }, lang: { type: "string" }, help: { type: "boolean", short: "h" }, version: { type: "boolean" } },
+    options: { yes: { type: "boolean" }, "dry-run": { type: "boolean" }, commit: { type: "boolean" }, pr: { type: "boolean" }, here: { type: "boolean" }, verbose: { type: "boolean", short: "v" }, skip: { type: "string" }, runner: { type: "string" }, pieces: { type: "boolean" }, lang: { type: "string" }, help: { type: "boolean", short: "h" }, version: { type: "boolean" } },
   });
   if (values.help === true) {
     out.stdout(`${usage()}\n`);
@@ -107,13 +113,15 @@ async function main(argv: string[], out: Output): Promise<number> {
   const [command, ...rest] = positionals;
   if (rest.length > 0 || (command !== undefined && command !== "doctor" && command !== "apply")) throw new UsageError(ui.cli.noCommand(positionals.join(" ")));
   if (command === "doctor") {
-    if (values.yes !== undefined || values["dry-run"] !== undefined || values.skip !== undefined || values.verbose !== undefined || values.commit !== undefined || values.pr !== undefined || values.here !== undefined || values.pieces !== undefined) throw new UsageError(ui.cli.doctorNoOptions);
+    if (values.yes !== undefined || values["dry-run"] !== undefined || values.skip !== undefined || values.verbose !== undefined || values.commit !== undefined || values.pr !== undefined || values.here !== undefined || values.pieces !== undefined || values.runner !== undefined) throw new UsageError(ui.cli.doctorNoOptions);
     return doctor(process.cwd(), out);
   }
   if (values.commit !== undefined) throw new UsageError(ui.cli.commitGone);
+  const runner = values.runner === "bun" || values.runner === "node" ? values.runner : undefined;
+  if (values.runner !== undefined && runner === undefined) throw new UsageError(ui.cli.runnerValue(values.runner));
   if (command === undefined) out.stderr(`${ui.cli.bare}\n`);
   const skip = (values.skip ?? "").split(",").map((name) => name.trim()).filter((name) => name !== "");
-  return sync({ cwd: process.cwd(), yes: values.yes ?? false, dryRun: values["dry-run"] ?? false, verbose: values.verbose ?? false, skip, pr: values.pr ?? false, here: values.here ?? false, pieces: values.pieces ?? false }, out);
+  return sync({ cwd: process.cwd(), yes: values.yes ?? false, dryRun: values["dry-run"] ?? false, verbose: values.verbose ?? false, skip, pr: values.pr ?? false, here: values.here ?? false, pieces: values.pieces ?? false, ...(runner === undefined ? {} : { runner }) }, out);
 }
 
 const out = processOutput();

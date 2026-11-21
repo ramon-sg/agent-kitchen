@@ -38,7 +38,7 @@ test("both catalogs have the same keys, every kind of step included", () => {
 
 test("in English each step orders, says what it is doing and what is left", () => {
   for (const [kind, render] of Object.entries(en.steps)) {
-    const said = render({ kind, version: "1.0.0", from: "1.0.0", to: "1.1.0", flow: "0.3.0", config: ".claude/cloud.json", missing: ["spike"], count: 2, catalogs: ["a/b"], catalog: "a/b", names: ["x"], rule: true, claudeImport: false, manager: "npm" });
+    const said = render({ kind, version: "1.0.0", from: "1.0.0", to: "1.1.0", flow: "0.3.0", config: ".claude/cloud.json", missing: ["spike"], count: 2, catalogs: ["a/b"], catalog: "a/b", names: ["x"], rule: true, claudeImport: false, manager: "npm", runner: "bun", tools: ["x 1.0.0"], left: ["y"] });
     assert.match(said.doing, /^[A-Z][a-z]+ing .+…$/, kind);
     assert.doesNotMatch(said.done, /→|…$/, kind);
     assert.notEqual(said.menu, said.done, kind);
@@ -77,7 +77,7 @@ test("an unknown language is a usage error that names the valid ones", () => {
 });
 
 test("apply and doctor speak English with AGENT_KITCHEN_LANG=en, and end in a block", () => {
-  const repo = installedRepo({ cloud: "1.0.0" });
+  const repo = installedRepo({ cloud: "0.9.0" });
 
   const dry = repo.cli(["apply", "--dry-run"], { env: { AGENT_KITCHEN_LANG: "en" } });
   const applied = repo.cli(["apply", "--yes", "--lang", "en"]);
@@ -85,18 +85,18 @@ test("apply and doctor speak English with AGENT_KITCHEN_LANG=en, and end in a bl
 
   assert.equal(dry.status, 0, dry.err);
   assert.match(dry.out, /This repo has:/);
-  assert.match(dry.out, /agent-cloud-kit +1\.0\.0, 1\.1\.0 is out/);
-  assert.match(dry.out, /\[x\] Update agent-cloud-kit 1\.0\.0 → 1\.1\.0/);
+  assert.match(dry.out, /agent-cloud-kit +0\.9\.0, 0\.9\.1 is out/);
+  assert.match(dry.out, /\[x\] Update agent-cloud-kit 0\.9\.0 → 0\.9\.1/);
   assert.equal(applied.status, 0, applied.err);
-  assert.match(applied.out, /✓ agent-cloud-kit updated from 1\.0\.0 to 1\.1\.0/);
+  assert.match(applied.out, /✓ agent-cloud-kit updated from 0\.9\.0 to 0\.9\.1/);
   assert.match(applied.out, /\[ok\] Done\.\n\n  Left to do: review the diff and commit\.\n\n  Next step for the cloud:\n    npx agent-cloud-kit prepare\n/);
   assert.doesNotMatch(applied.out + doctor.out, /[áéíóú]|Listo|Falta/);
-  assert.match(doctor.out, /✓ agent-cloud-kit: 1\.1\.0/);
+  assert.match(doctor.out, /✓ agent-cloud-kit: 0\.9\.1/);
   assert.match(doctor.out, /\[ok\] No check failed\.\n/);
 });
 
 test("doctor ends saying how many checks failed", () => {
-  const repo = installedRepo({ cloud: "1.0.0" });
+  const repo = installedRepo({ cloud: "0.9.0" });
   repo.write(".claude/cloud.json", { version: "latest" });
 
   const r = repo.cli(["doctor"]);

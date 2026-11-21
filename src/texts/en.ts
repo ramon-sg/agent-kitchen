@@ -14,6 +14,26 @@ const list = (names: string[]): string => names.join(", ");
 /** The texts in English. */
 export const en: Catalog = {
   steps: {
+    "runner-finish": ({ left }) => ({
+      menu: `Finish the move to .agents/runner.json: remove ${list(left)}`,
+      doing: "Finishing the move to .agents/runner.json…",
+      done: left.length === 0 ? "Move to .agents/runner.json: nothing this run could remove" : `Move to .agents/runner.json finished: no more ${list(left)}`,
+    }),
+    "runner-change": ({ from, to, tools }) => ({
+      menu: `Change the runner from ${from} to ${to} and rewrite hooks and shortcuts: ${list(tools)}`,
+      doing: `Changing the runner from ${from} to ${to}…`,
+      done: `Runner changed from ${from} to ${to}: ${list(tools)}`,
+    }),
+    "runner-rewrite": ({ runner, tools }) => ({
+      menu: `Rewrite the hooks and shortcuts with the ${runner} runner: ${list(tools)}`,
+      doing: `Rewriting hooks and shortcuts with the ${runner} runner…`,
+      done: `Hooks and shortcuts rewritten with the ${runner} runner: ${list(tools)}`,
+    }),
+    "runner-migrate": ({ runner, tools }) => ({
+      menu: `Move the tools to .agents/runner.json with the ${runner} runner: ${list(tools)}`,
+      doing: `Moving the tools to .agents/runner.json with the ${runner} runner…`,
+      done: `Tools in .agents/runner.json with the ${runner} runner: ${list(tools)}`,
+    }),
     "skills-manager-create": ({ version }) => ({
       menu: `Create package.json with skills-manager ${version}`,
       doing: `Creating package.json with skills-manager ${version}…`,
@@ -28,6 +48,16 @@ export const en: Catalog = {
       menu: `Raise skills-manager ${from} → ${to}, agent-kitchen's minimum`,
       doing: `Raising skills-manager from ${from} to ${to}…`,
       done: `skills-manager raised from ${from} to ${to}`,
+    }),
+    "skills-manager-pin": ({ version }) => ({
+      menu: `Pin skills-manager ${version} in .agents/runner.json, with its session-notice hook`,
+      doing: `Pinning skills-manager ${version}…`,
+      done: `skills-manager ${version} pinned in .agents/runner.json, with its session-notice hook`,
+    }),
+    "skills-manager-update": ({ from, to }) => ({
+      menu: `Update skills-manager ${from} → ${to}, with its session-notice hook`,
+      doing: `Updating skills-manager from ${from} to ${to}…`,
+      done: `skills-manager updated from ${from} to ${to}, with its session-notice hook`,
     }),
     "flow-install": ({ version }) => ({
       menu: `Install issue-flow ${version}: flow config, hooks and scripts`,
@@ -144,6 +174,12 @@ export const en: Catalog = {
     return wrote ? "You picked no steps; only saved which pieces the repo uses." : "You picked nothing; nothing was changed.";
   },
   nothingChanged: "Nothing was changed.",
+  runnerWillWrite: (file, runner) => `New repo: the real run will create ${file} with the ${runner} runner; what follows is already in that mode.`,
+  runnerIgnored: (why) => `--runner had no effect: ${why}.`,
+  runnerIgnoredSkipped: "the runner piece is left out of this run",
+  runnerIgnoredNone: "the repo has no tools to move to .agents/runner.json",
+  runnerLeft: (file) => `${file} is new and uncommitted; include it in your commit.`,
+  runnerWritten: (file, runner) => `New repo: wrote ${file} with the ${runner} runner; every tool installs with it.`,
   nothingChangedWarning: "nothing was changed.",
   cloning: (base) => `Working in a temporary copy of origin/${base}; your branch and your files are not touched.`,
   changes: "Changes in the PR:",
@@ -163,7 +199,7 @@ export const en: Catalog = {
   },
   cli: {
     usage: (pieces) => `Usage:
-  agent-kitchen apply [--yes | --dry-run] [--pr | --here] [--verbose] [--skip <piece>,...]
+  agent-kitchen apply [--yes | --dry-run] [--pr | --here] [--verbose] [--skip <piece>,...] [--runner bun|node]
   agent-kitchen apply --pieces [--pr | --here]
   agent-kitchen doctor
 
@@ -171,7 +207,8 @@ agent-kitchen checks each piece of the repo's agent tooling (${pieces.join(", ")
 shows what the repo has and the latest version of each, and apply offers to install what is
 missing and update what is behind. In a terminal it asks once: do everything suggested, or
 pick the steps and the skills. --yes does what is suggested without asking; without a
-terminal it only shows it. --verbose shows each tool's output.
+terminal it only shows it. --verbose shows each tool's output. --runner bun|node changes the runner
+of the repo's tools (in .agents/runner.json; a repo without it is moved there with that runner).
 --pr works in a freshly fetched temporary copy of origin/<base>, without touching your branch:
 it installs the dependencies, commits, pushes a new branch to origin and opens a draft PR.
 --here works on the current branch and leaves the changes uncommitted; if the steps changed
@@ -187,6 +224,7 @@ and the PR of --pr are always in Spanish.`,
     handOver: (latest, own) => `agent-kitchen: using ${latest}, the latest (this one is ${own}).`,
     noCommand: (words) => `there is no command ${words}.`,
     doctorNoOptions: "doctor takes no options, except --lang.",
+    runnerValue: (value) => `--runner expects bun or node: ${value}`,
     commitGone: "--commit no longer exists: use --pr to open a PR from a copy of origin, or --here to leave the changes uncommitted on the current branch.",
     bare: "agent-kitchen: use 'agent-kitchen apply'; without a subcommand it will stop installing in a major version.",
     lang: (source, value) => `${source} expects es or en: ${value}`,
@@ -216,6 +254,10 @@ and the PR of --pr are always in Spanish.`,
     inPrHint: (base) => `recommended · starts from origin/${base}, does not touch your branch or your files`,
     inHere: "On the current branch, uncommitted",
     inHereHint: "you review them with git diff and commit them yourself",
+    noBun: "Bun is not installed. What should run this repo's tools?",
+    useNode: "Node (npx)",
+    useNodeHint: "you can move to Bun later with \"runner\": \"bun\" in .agents/runner.json",
+    leaveNoBun: "Leave; I install Bun and come back",
   },
   doctor: {
     allOk: "No check failed.",
@@ -251,11 +293,39 @@ and the PR of --pr are always in Spanish.`,
       npmDown: " (npm does not answer)",
       notExactKept: (spec) => `package.json has ${spec}, not an exact version; left alone`,
       notExact: (spec) => `package.json has ${spec}, not an exact version`,
+      readsRunner: (spec) => `package.json has ${spec}, which already reads .agents/runner.json; left alone until the repo moves to runner.json`,
       inPackage: (name, version) => `${name} ${version} in package.json`,
+      inRunner: (name, version) => `${name} ${version} in .agents/runner.json`,
       alreadyFine: "package.json already had a version that works",
       failed: (what, command) => `${what} failed; run '${command}'.`,
       doctorFailed: (command) => `its doctor could not run; run '${command}'`,
       behindRun: (version, latest) => `${version}, ${latest} is out: run npx agent-kitchen apply`,
+    },
+    runner: {
+      summary: "the tools' versions, in .agents/runner.json",
+      inRunner: (runner) => `${runner}, in .agents/runner.json`,
+      ready: "legacy mode; every tool has a version that reads .agents/runner.json",
+      legacy: "legacy mode",
+      waiting: (missing) => `legacy mode; to move to .agents/runner.json, npm still lacks ${list(missing)}`,
+      notExact: (spec) => `legacy mode; package.json has issue-flow ${spec}, not an exact version: pin it to move to .agents/runner.json`,
+      leftOut: (pieces) => `legacy mode; moving to .agents/runner.json takes every tool, and this run leaves out ${list(pieces)}`,
+      changeLeftOut: (pieces) => `changing the runner takes every tool, and this run leaves out ${list(pieces)}`,
+      packageManagerSet: (value) => `packageManager in package.json: ${value}`,
+      packageManagerRemoved: "packageManager removed from package.json",
+      bunVersionUnknown: "could not read bun's version (bun --version); packageManager in package.json stays as it was",
+      movedByRunner: " (done by the runner step)",
+      written: (file, runner) => `${file} written with the ${runner} runner`,
+      cleaned: (names) => `removed from package.json: ${list(names)}`,
+      versionRemoved: (file) => `"version" removed from ${file}`,
+      removed: (paths) => `deleted: ${list(paths)}`,
+      installLater: (manager) => `the repo has dependencies of its own: '${manager} install' runs at the end`,
+      notRun: (names) => `Did not run: ${list(names)}.`,
+      leftovers: "; legacy leftovers remain",
+      leftPackage: (names) => `${list(names)} in package.json`,
+      leftVersion: (file) => `"version" in ${file}`,
+      leftHook: "the session-notice hook",
+      scriptKept: (name) => `scripts.${name} runs skills-manager unpinned along with other commands; left as it is: change it by hand`,
+      cleanup: "the cleanup of package.json, node_modules and the lockfile",
     },
     skillsManager: {
       summary: "the skills CLI, which agent-kitchen runs",
@@ -264,6 +334,9 @@ and the PR of --pr are always in Spanish.`,
       below: (version, minimum) => `${version}, below ${minimum}`,
       rangeKept: (spec, runs, minimum) => `package.json has ${spec}, not an exact version; left alone${runs === null ? "" : `; runs ${runs}, below ${minimum}`}`,
       checkMissing: (minimum) => `not in package.json; run npx agent-kitchen apply to pin ${minimum}`,
+      missingInRunner: "not in .agents/runner.json",
+      checkMissingInRunner: "not in .agents/runner.json; run agent-kitchen apply to pin it",
+      hookPinned: (command) => `SessionStart hook: ${command}`,
       checkBelow: (version, minimum) => `${version}, below ${minimum}, agent-kitchen's minimum: run npx agent-kitchen apply`,
       checkOk: (version, minimum) => `${version} (minimum ${minimum})`,
       checkRangeBelow: (spec, runs, minimum) => `${spec} runs ${runs}, below ${minimum}, agent-kitchen's minimum: raise the range`,
@@ -291,6 +364,7 @@ and the PR of --pr are always in Spanish.`,
       summary: "Claude cloud sessions",
       unpinned: (config) => `${config} pins no version`,
       checkUnpinned: (config, example) => `${config} pins no exact version: put the one in use in "version", like "${example}"`,
+      checkUnpinnedInRunner: (file) => `${file} does not pin agent-cloud-kit: run agent-kitchen apply`,
     },
     guard: {
       summary: "guardrails: auto mode with sandbox",
@@ -305,6 +379,7 @@ and the PR of --pr are always in Spanish.`,
       checkNotInstalled: "not installed (Claude opens with your own permissions)",
       checkWeaker: (config) => `not turned on in ${config}, so gh fails in the macOS sandbox: run npx agent-kitchen apply`,
       checkOk: (version) => `${version}, its doctor passes`,
+      checkUnpinnedInRunner: "installed, but .agents/runner.json does not pin it: run agent-kitchen apply",
     },
     skills: {
       summary: "flow skills, plans and audits",
@@ -326,6 +401,7 @@ and the PR of --pr are always in Spanish.`,
       noRule: "the rule is missing",
       noImport: "CLAUDE.md does not import AGENTS.md",
       noPackage: "no package.json: nothing was added",
+      ruleSkipped: "the rule was not added: the repo runs its tools from .agents/runner.json and has no dependencies of its own",
       checkNoRule: "the versions rule is missing from AGENTS.md; run npx agent-kitchen apply",
       checkNoImport: "CLAUDE.md does not import AGENTS.md, so Claude Code does not read it; run npx agent-kitchen apply",
       checkOk: "versions rule in AGENTS.md",

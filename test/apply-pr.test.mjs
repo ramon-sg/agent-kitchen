@@ -10,7 +10,7 @@ import { execFileSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { changedPaths, publish } from "../dist/pr-clone.js";
-import { GIT_ENV, makeRepo } from "./helpers.mjs";
+import { GIT_ENV, makeFreshRepo, makeRepo } from "./helpers.mjs";
 
 Object.assign(process.env, GIT_ENV);
 
@@ -155,7 +155,7 @@ test("if the install fails, nothing is pushed and the clone is kept with its pat
 });
 
 test("with a failed step, nothing is pushed and the clone is kept", () => {
-  const repo = makeRepo({ origin: true });
+  const repo = makeFreshRepo({ origin: true });
 
   const r = repo.cli(["--yes", "--pr", "--skip", "claude-repo-guard,skills"], { env: { FAKE_FAIL: "agent-cloud-kit" } });
 
@@ -303,4 +303,18 @@ test("changedPaths reads paths with spaces and renames", () => {
   repo.git("mv", "viejo.txt", "nuevo.txt");
 
   assert.deepEqual(changedPaths(repo.main).sort(), ["a b.txt", "nuevo.txt"]);
+});
+
+test("--pr on a new repo lists runner.json in the commit and brings it in the PR", () => {
+  const repo = makeFreshRepo({ origin: true });
+
+  const r = repo.cli(["--yes", "--pr", "--skip", "agent-cloud-kit,skills-manager,claude-repo-guard,skills,agents-md"]);
+
+  // The fake flow (0.2.0) does not pin github-rest in runner.json as the real one does, so the PR itself is not opened;
+  // the branch is pushed with the commit, which is what this test is about.
+  assert.match(r.out, /La rama .* está en origin/);
+  const branch = `origin/${today()}`;
+  assert.match(repo.git("log", "-1", "--format=%B", branch), /- Crear \.agents\/runner\.json con el ejecutor bun/);
+  assert.ok(repo.git("show", "--name-only", "--format=", branch).split("\n").includes(".agents/runner.json"));
+  assert.equal(repo.exists(".agents/runner.json"), false);
 });

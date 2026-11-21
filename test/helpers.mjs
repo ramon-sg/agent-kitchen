@@ -27,7 +27,9 @@ registry.stdout.unref();
 // The latest of everything on npm, unless a test says otherwise.
 export { GIT_ENV };
 
-export const NPM = { "@ramon-sg/issue-flow": "0.2.0", "agent-cloud-kit": "1.1.0" };
+// agent-cloud-kit stays below 1.0.0, its first version that reads runner.json, so a legacy repo
+// may go to it.
+export const NPM = { "@ramon-sg/issue-flow": "0.2.0", "agent-cloud-kit": "0.9.1" };
 
 // What npm answers when agent-cloud-kit's `latest` is `version` (a release candidate, say) and
 // everything else is as in NPM. For FAKE_NPM.
@@ -63,13 +65,21 @@ const npxCalls = (log) => toolCalls(log).map((call) => call.args);
 // A repo for the tests. `tags` gives the release tags of each GitHub repo.
 // With `origin`, the repo also gets an `origin` remote (a local bare repo) with main pushed
 // and `origin/HEAD` set, as a clone has.
-export function makeRepo({ tags = { "ramon-sg/claude-repo-guard": ["0.1.0", "0.2.0"], "ramon-sg/agent-skills": ["0.1.0", "0.2.0"] }, origin = false } = {}) {
+// By default the repo already has agent-cloud-kit at its latest in .claude/cloud.json (committed, so a
+// clone of origin has it too; it asks for no step): it is not new, so apply leaves it in legacy mode
+// and the legacy tests keep their ground. A new repo, which apply starts in runner mode, is `makeFreshRepo`.
+export function makeRepo({ tags = { "ramon-sg/claude-repo-guard": ["0.1.0", "0.2.0"], "ramon-sg/agent-skills": ["0.1.0", "0.2.0"] }, origin = false, fresh = false } = {}) {
   const tmp = realpathSync(mkdtempSync(join(tmpdir(), "agent-kitchen-")));
   const main = join(tmp, "main");
   const bin = join(tmp, "bin");
   mkdirSync(main);
   mkdirSync(bin);
   git(main, "init", "-q", "-b", "main");
+  if (!fresh) {
+    mkdirSync(join(main, ".claude"));
+    writeFileSync(join(main, ".claude", "cloud.json"), JSON.stringify({ version: NPM["agent-cloud-kit"] }));
+    git(main, "add", ".");
+  }
   git(main, "commit", "-q", "--allow-empty", "-m", "init");
   for (const [repo, versions] of Object.entries(tags)) {
     const bare = join(tmp, "github", `${repo}.git`);
@@ -85,14 +95,14 @@ export function makeRepo({ tags = { "ramon-sg/claude-repo-guard": ["0.1.0", "0.2
     git(main, "push", "-q", "origin", "main");
     git(main, "remote", "set-head", "origin", "main");
   }
-  for (const [name, as] of [["npx", ""], ["bunx", "FAKE_AS=bunx "], ["npm", "FAKE_AS=npm "], ["pnpm", "FAKE_AS=pnpm "]]) {
+  for (const [name, as] of [["npx", ""], ["bunx", "FAKE_AS=bunx "], ["bun", "FAKE_AS=bun "], ["npm", "FAKE_AS=npm "], ["pnpm", "FAKE_AS=pnpm "]]) {
     writeFileSync(join(bin, name), `#!/bin/sh\n${as}exec node "${join(HERE, "fake-tools.mjs")}" "$@"\n`);
     chmodSync(join(bin, name), 0o755);
   }
   const log = join(tmp, "calls.jsonl");
   const id = basename(tmp);
-  // What the fake registry answers for this repo: the FAKE_NPM and FAKE_NPM_DEPS of the run.
-  const serve = (env) => writeFileSync(join(tmp, "registry.json"), JSON.stringify({ latest: JSON.parse(env.FAKE_NPM ?? "{}"), deps: JSON.parse(env.FAKE_NPM_DEPS ?? "{}") }));
+  // What the fake registry answers for this repo: the FAKE_NPM, FAKE_NPM_DEPS and FAKE_NPM_VERSIONS of the run.
+  const serve = (env) => writeFileSync(join(tmp, "registry.json"), JSON.stringify({ latest: JSON.parse(env.FAKE_NPM ?? "{}"), deps: JSON.parse(env.FAKE_NPM_DEPS ?? "{}"), versions: JSON.parse(env.FAKE_NPM_VERSIONS ?? "{}") }));
   const env = (extra = {}) => ({
     ...process.env,
     PATH: `${bin}:${process.env.PATH}`,
@@ -146,10 +156,14 @@ export function makeRepo({ tags = { "ramon-sg/claude-repo-guard": ["0.1.0", "0.2
   };
 }
 
+// A repo with nothing installed and no runner.json, which apply starts in runner mode.
+export const makeFreshRepo = (options = {}) => makeRepo({ ...options, fresh: true });
+
 // A repo as agent-kitchen leaves it at the given versions: the flow, its skills and the general
 // ones, agent-cloud-kit, claude-repo-guard (with the flow's options) and the rule in AGENTS.md.
-export function installedRepo({ flow = "0.2.0", cloud = "1.1.0", guard = "0.2.0", general = "v0.2.0", tags } = {}) {
-  const repo = makeRepo(tags === undefined ? {} : { tags });
+// With `origin`, the repo also gets a local origin (see makeRepo); these files are not committed.
+export function installedRepo({ flow = "0.2.0", cloud = "0.9.1", guard = "0.2.0", general = "v0.2.0", tags, origin = false } = {}) {
+  const repo = makeRepo({ ...(tags === undefined ? {} : { tags }), origin });
   repo.write("package.json", { devDependencies: { "@ramon-sg/issue-flow": flow, "@ramon-sg/github-rest": "0.2.1", "@ramon-sg/skills-manager": "1.2.0" } });
   repo.write(".agents/flow.json", {});
   repo.write("AGENTS.md", `${RULE}\n`);

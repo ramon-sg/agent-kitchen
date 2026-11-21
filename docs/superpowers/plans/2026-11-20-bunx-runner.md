@@ -152,7 +152,17 @@
 
 ## Parte B — necesita las versiones de las herramientas que leen `runner.json`
 
-**Antes de empezar:** están publicadas las versiones de los pasos 3–6 de la spec. Anotar cada una (la primera que lee `runner.json`) en la Task B1. Si falta alguna, esta parte espera; la Parte A ya se puede publicar sola.
+**Antes de empezar:** están publicadas las versiones de los pasos 3–6 de la spec (2026-11-21): `@ramon-sg/issue-flow` 0.6.0, `@ramon-sg/skills-manager` 1.5.0 (última 1.5.1, solo arreglos), `@ramon-sg/claude-repo-guard` 0.8.0 (primera en npm; mismo commit que el tag `v0.8.0`), `agent-cloud-kit` 1.0.0, `@ramon-sg/github-rest` 0.7.0.
+
+**Cómo se comportan esas versiones** (leído de su código; hay que respetarlo):
+- **`issue-flow` ≥ 0.6.0 no tiene modo viejo.** `apply --yes --json` en cualquier repo crea o actualiza `runner.json` (su entrada, y `github-rest` si falta, sin subirla nunca si ya está), reescribe sus 3 hooks y los atajos `issue:start`, `issue:start:free`, `worktree:prune`, `pr:worktree`, quita `@ramon-sg/issue-flow` y `@ramon-sg/github-rest` de `dependencies`/`devDependencies` y los scripts viejos `issue-flow …`, y quita el hook `SessionStart` propio de `agent-cloud-kit`. No corre install ni borra `node_modules` ni lockfiles (solo sugiere `<pm> install`). `issue-flow --version --json` → `{version, githubRest, runner}`; el piso de `github-rest` es 0.6.0. Se niega si `package.json`, un hook o `runner.json` tienen una `issue-flow` más nueva o un rango.
+- **`claude-repo-guard` 0.8.0** sigue en modo viejo si el repo tiene el manifest y no tiene `runner.json`: hay que crear `runner.json` antes. `apply --yes` en modo runner escribe su entrada, los atajos `claude:auto`/`claude:free`, sandbox y doc; deja y reescribe `.claude/repo-guard.manifest.json` (no borrarlo: lo usa `uninstall`). No escribe hooks de Claude Code. Nunca correr su `apply` desde dentro de una sesión de Claude Code ya instalada (el sandbox bloquea `.claude/settings.json`).
+- **`skills-manager` 1.5.x** solo agrega o sube su propia entrada en `runner.json`, y solo si hay manifiesto. No toca `package.json` ni el hook `SessionStart` de `session-notice`. No tiene `--version`.
+- **`agent-cloud-kit` 1.0.0** lee su versión de `runner.json` y, si no está, de `version` en `.claude/cloud.json` (con aviso). `init` crea `runner.json` también en un repo viejo, sembrado con la versión de `cloud.json`; nunca borra esa clave (su `doctor` avisa que sobra). En la nube, con `bun` y sin `bunx`, corre `npm install -g bun`.
+- **`github-rest` 0.7.0** no lee `runner.json`.
+- Sin terminal: `--yes` para `issue-flow` (`apply --yes --json`) y el guard (`apply --yes`); `skills-manager` y `agent-cloud-kit` no lo necesitan.
+
+**Consecuencia: la migración es todo o nada también hacia afuera.** En modo viejo, `agent-kitchen` no puede ofrecer actualizar una herramienta a una versión ≥ su mínimo (Task B1): eso la migraría sola. Esa subida solo ocurre dentro del paso de migración (Task B3).
 
 ### Task B1: Versiones mínimas y versiones desde `runner.json`
 
@@ -165,10 +175,20 @@
   - `RUNNER_MINIMUMS: Record<string, string>` — paquete → primera versión que lee `runner.json`: `@ramon-sg/issue-flow`, `@ramon-sg/skills-manager`, `@ramon-sg/claude-repo-guard`, `agent-cloud-kit`. Los valores son los anotados en "Antes de empezar".
   - `GUARD_PACKAGE = "@ramon-sg/claude-repo-guard"`.
   - `toolVersion(root: string, pkg: string): string | null` — en modo runner, la de `runner.json`; en modo viejo, de donde hoy (`package.json`, `.claude/cloud.json`, manifest del guard).
-- En modo runner, la pieza `claude-repo-guard` corre `@ramon-sg/claude-repo-guard@<v>` y busca la última con `npmLatest(GUARD_PACKAGE)` en vez de `latestTag`.
+  - `legacyCeiling(pkg: string): string` — en modo viejo, la versión ofrecida para actualizar es la más nueva **por debajo** de `RUNNER_MINIMUMS[pkg]` (de `versions` del registro; para el guard, el tag más nuevo bajo `v0.8.0`). Si no hay ninguna más nueva que la instalada, no hay paso de actualización. Una instalación nueva en modo viejo no existe: un repo sin herramientas nace en modo runner (Task B2).
+- En modo runner:
+  - La pieza `claude-repo-guard` corre `@ramon-sg/claude-repo-guard@<v> apply --yes` y busca la última con `npmLatest(GUARD_PACKAGE)` en vez de `latestTag`. Se quita el arreglo temporal de la Parte A que corría specs `github:` con `npx` en modo runner (en modo runner ya no hay specs `github:`).
+  - `agent-kitchen` escribe y vuelve a fijar el hook `SessionStart` de `session-notice` con el comando del ejecutor y la versión de `skills-manager`, en cada instalación o actualización de `skills-manager`.
+  - Después de correr `issue-flow`, si la entrada de `@ramon-sg/github-rest` en `runner.json` está bajo la `githubRest` de `issue-flow --version --json` o bajo la última de npm, `agent-kitchen` la sube con `setTool` (nunca la baja).
+  - `splitSpec` rechaza un spec sin versión exacta (`isExactVersion`).
+  - Las sugerencias "córrelo a mano" que todavía dicen `npx` (`src/pr-clone.ts` `prCommand`, `src/commands/sync.ts` `cloudNext`) usan `toolText` con la versión de `runner.json`.
 
 - [ ] **Step 1: `fake-tools.mjs`.** Las versiones falsas desde los mínimos escriben su entrada en `.agents/runner.json` (con `setTool`/`writeRunnerConfig` reales importados de `node_modules/@ramon-sg/runner`) en vez de `devDependencies` / `cloud.json` / manifest, y sus hooks y atajos con el comando de su ejecutor.
-- [ ] **Step 2: Tests que fallan:** en un repo en modo runner con las versiones de los mínimos, `apply --dry-run` muestra la versión de cada pieza leída de `runner.json` (y no la de un `package.json` con otros números puesto a propósito); `apply --yes` actualiza cada una corriendo su spec con `bunx --bun`; el guard se busca en el registro, no con `git ls-remote`.
+- [ ] **Step 2: Tests que fallan:**
+  - En un repo en modo runner con las versiones de los mínimos, `apply --dry-run` muestra la versión de cada pieza leída de `runner.json` (y no la de un `package.json` con otros números puesto a propósito); `apply --yes` actualiza cada una corriendo su spec con `bunx --bun`; el guard se busca en el registro, no con `git ls-remote`.
+  - **Modo viejo con `issue-flow` 0.5.1 instalado y el registro diciendo `0.5.2` y `0.6.0`: el paso ofrecido es a `0.5.2`; con solo `0.6.0` más nueva, no hay paso de actualización de `issue-flow`.** Igual para el guard con tags `v0.7.1` y `v0.8.0`.
+  - Modo runner: tras actualizar `skills-manager`, el hook `SessionStart` de `session-notice` dice `bunx --bun @ramon-sg/skills-manager@<nueva> session-notice`.
+  - Modo runner: `issue-flow` falso que deja `github-rest` en 0.6.0 y registro con 0.7.0 → `runner.json` termina con 0.7.0.
 - [ ] **Step 3: Correr** → FAIL. **Step 4: Implementar.** **Step 5: Correr** → PASS.
 - [ ] **Step 6: Commit** (con OK). `feat: en modo runner las versiones salen de runner.json`
 
@@ -192,12 +212,21 @@
 - Modify: `src/commands/sync.ts` (`PIECES`: `runner` primero), `src/decisions.ts` (no es decidible: no entra en `DECIDABLE`), `src/texts/{es,en}.ts`
 
 **Interfaces:**
-- Produces: pieza `runner` con `status(root)` y `checks(root)` (contrato de `src/piece.ts`). Su paso, `checked: true`, hace en orden lo que dice la spec ("Migración"): copiar versiones a `runner.json` (con `"runner"` según `chooseRunner`), quitar `devDependencies` del ecosistema y la versión de `.claude/cloud.json`, correr el `apply` de cada herramienta instalada en su versión con el ejecutor nuevo, y luego install con el gestor del lockfile si quedan dependencias propias, o borrar `node_modules` y el lockfile si no.
+- Produces: pieza `runner` con `status(root)` y `checks(root)` (contrato de `src/piece.ts`). Se ofrece en modo viejo cuando hay al menos una herramienta instalada y la última versión en npm de cada herramienta instalada está en o sobre su mínimo. Su paso, `checked: true`, hace en este orden (las herramientas van a su última versión, no a la instalada):
+  1. Escribir `runner.json` con `"runner"` según `chooseRunner` (o `--runner`, Task B4) y las entradas de las herramientas instaladas en su versión destino. Antes que cualquier herramienta: el guard sigue en modo viejo sin este archivo.
+  2. `issue-flow apply --yes --json` (si está instalada). Luego subir `github-rest` como en B1.
+  3. `claude-repo-guard apply --yes` (si está instalado; desde `@ramon-sg/claude-repo-guard`, ya no desde GitHub). El manifest se queda.
+  4. `agent-cloud-kit init` (si está instalado), y quitar la clave `version` de `.claude/cloud.json` (el archivo se queda).
+  5. `skills-manager` en su versión destino (su paso de update), el hook de `session-notice` como en B1, y quitar `@ramon-sg/skills-manager` de `devDependencies` y cualquier script `npx skills-manager …`.
+  6. Si quedan dependencias propias (`ownDependencies`), install con el gestor del lockfile; si no, borrar `node_modules` y el lockfile. El `package.json` se queda (tiene los atajos).
+  Si un paso falla, los siguientes no corren y el resumen lo dice; no se intenta deshacer.
 
 - [ ] **Step 1: Tests que fallan:**
   - `installedRepo()` con todas las herramientas en o sobre `RUNNER_MINIMUMS` → se ofrece el paso; tras `apply --yes`: `runner.json` tiene las cinco versiones, `package.json` no tiene `devDependencies` del ecosistema, `cloud.json` no tiene `version`, y no existen `package-lock.json` ni `node_modules`.
   - **Igual pero con `"dependencies":{"react":"19.0.0"}` y `pnpm-lock.yaml` → corre `pnpm install`, `react` sigue en `package.json` y el lockfile existe.** (Review Focus 4)
-  - **Con `skills-manager` bajo su mínimo → no hay paso `runner`, la tabla nombra `@ramon-sg/skills-manager` y su mínimo, y nada cambia.** (Review Focus 5)
+  - **Con el registro sin ninguna `skills-manager` en o sobre su mínimo → no hay paso `runner`, la tabla nombra `@ramon-sg/skills-manager` y su mínimo, y nada cambia.** (Review Focus 5)
+  - El orden de las llamadas es: `runner.json` escrito antes de la primera llamada; luego `issue-flow`, guard, `agent-cloud-kit`, `skills-manager` (con `programs()`/`allCalls()`), y `.claude/cloud.json` queda sin `version` pero existe; el manifest del guard sigue.
+  - Un paso de herramienta que falla → los siguientes no corren y la salida lo dice.
   - `--pr`: el commit lleva `runner.json`, `package.json` y el lockfile borrado o actualizado.
 - [ ] **Step 2: Correr** → FAIL. **Step 3: Implementar.** **Step 4: Correr** → PASS.
 - [ ] **Step 5: Commit** (con OK). `feat: migrar un repo a runner.json`

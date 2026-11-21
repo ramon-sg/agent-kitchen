@@ -137,6 +137,23 @@ export async function askReplace(own: string[]): Promise<boolean | null> {
   return isCancel(answer) ? null : answer;
 }
 
+/**
+ * Asks, in a terminal without Bun, whether to run the repo's tools with Node or leave.
+ * @returns "node", or null if the person chose to leave or cancelled.
+ * @example await askNoBun() // "node"
+ */
+export async function askNoBun(): Promise<"node" | null> {
+  localKeys();
+  const answer = await select<"node" | "leave">({
+    message: ui.menu.noBun,
+    options: [
+      { value: "node", label: ui.menu.useNode, hint: ui.menu.useNodeHint },
+      { value: "leave", label: ui.menu.leaveNoBun },
+    ],
+  });
+  return isCancel(answer) || answer === "leave" ? null : "node";
+}
+
 /** Where apply works: a PR from a clone of origin, or the person's checkout. */
 export type Place = "pr" | "here";
 

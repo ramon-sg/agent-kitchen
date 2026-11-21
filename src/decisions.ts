@@ -2,7 +2,8 @@
  * @file What the repo wants of each piece, kept in `.agents/kitchen.json`: `true` to have it,
  * `false` to leave it out for good. Only the pieces that are a choice carry a decision;
  * `skills-manager` does not, because it is the tool that installs the others' skills and is
- * always kept up to date, never opted in or out.
+ * always kept up to date, never opted in or out; nor does `runner`, the move of a legacy repo to
+ * `.agents/runner.json`, which is all the installed tools at once or none.
  */
 import { isObject, readJson, writeJson } from "./repo.js";
 import { ui } from "./texts/index.js";

@@ -49,7 +49,7 @@ test("with every label there, or only some that differ, there is no step", () =>
 });
 
 test("when the sync fails, its step fails with how to retry, and the others still run", () => {
-  const repo = installedRepo({ flow: "0.2.6", cloud: "1.0.0" });
+  const repo = installedRepo({ flow: "0.2.6", cloud: "0.9.0" });
 
   const r = repo.cli(["--yes", "--skip", "skills-manager,claude-repo-guard,skills,agents-md"], { env: { FAKE_NPM: npm("0.2.6"), FAKE_LABELS: labels("spike"), FAKE_LABELS_FAIL: "1" } });
 
@@ -57,7 +57,7 @@ test("when the sync fails, its step fails with how to retry, and the others stil
   assert.match(r.out, /✗ Falló: Crear en GitHub los labels que faltan: spike/);
   assert.match(r.err, /issue-flow labels falló; corre 'npx @ramon-sg\/issue-flow@0\.2\.6 labels sync'/);
   assert.match(r.err, /gh auth login is needed/);
-  assert.match(r.out, /✓ agent-cloud-kit actualizado de 1\.0\.0 a /);
+  assert.match(r.out, /✓ agent-cloud-kit actualizado de 0\.9\.0 a /);
 });
 
 test("when the labels cannot be read, there is no step, and the state says so", () => {

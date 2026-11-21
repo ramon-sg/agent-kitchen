@@ -93,7 +93,9 @@ function append(root: string, name: string, line: string): void {
 }
 
 /**
- * Writes what is missing, if the repo has package.json by now.
+ * Writes what is missing, if the repo has package.json by now. The rule is looked at again:
+ * the step may have been planned before an earlier step (the move to runner.json) made it
+ * pointless.
  * @param context - Where it runs.
  * @returns Always true: a repo without package.json gets nothing, and that is no failure.
  */
@@ -103,7 +105,8 @@ function write(context: Context): boolean {
     return true;
   }
   const lack = missing(context.root);
-  if (lack.rule) append(context.root, "AGENTS.md", VERSION_RULE);
+  if (lack.rule && pointless(context.root)) context.note(ui.pieces.agentsMd.ruleSkipped);
+  else if (lack.rule) append(context.root, "AGENTS.md", VERSION_RULE);
   if (lack.import) append(context.root, "CLAUDE.md", IMPORT);
   return true;
 }

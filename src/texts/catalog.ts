@@ -29,8 +29,12 @@ export interface PieceTexts {
   notExactKept: (spec: string) => string;
   /** The same, in doctor. */
   notExact: (spec: string) => string;
+  /** In a legacy repo, a version in package.json that already reads `.agents/runner.json`, which the piece leaves alone. */
+  readsRunner: (spec: string) => string;
   /** A package written into package.json. */
   inPackage: (name: string, version: string) => string;
+  /** A package written into `.agents/runner.json`. */
+  inRunner: (name: string, version: string) => string;
   alreadyFine: string;
   /** A tool that failed, with the command to run by hand. */
   failed: (what: string, command: string) => string;
@@ -78,6 +82,17 @@ export interface Catalog {
   noSteps: (why: "leave" | "none", wrote: boolean) => string;
   /** Nothing was changed. */
   nothingChanged: string;
+  /** The line of a first run that writes runner.json: the runner chosen. */
+  runnerWritten: (file: string, runner: string) => string;
+  /** With --dry-run on a new repo: the real run will create the file. */
+  runnerWillWrite: (file: string, runner: string) => string;
+  /** At the end of a run in the checkout that created the file: it is not committed. */
+  runnerLeft: (file: string) => string;
+  /** `--runner` names the runner the repo already has. */
+  runnerIgnored: (why: string) => string;
+  /** Why `--runner` did nothing: the runner piece is left out, or the repo has no tool to move. */
+  runnerIgnoredSkipped: string;
+  runnerIgnoredNone: string;
   /** The same, as a warning after the program's name. */
   nothingChangedWarning: string;
   /** With --pr, before the clone: from which branch of origin. */
@@ -108,6 +123,8 @@ export interface Catalog {
     handOver: (latest: string, own: string) => string;
     noCommand: (words: string) => string;
     doctorNoOptions: string;
+    /** `--runner` with a value that is not a runner. */
+    runnerValue: (value: string) => string;
     commitGone: string;
     /** `agent-kitchen` without a subcommand. */
     bare: string;
@@ -141,6 +158,11 @@ export interface Catalog {
     inPrHint: (base: string) => string;
     inHere: string;
     inHereHint: string;
+    /** The question of a repo's first run when there is no Bun in the terminal. */
+    noBun: string;
+    useNode: string;
+    useNodeHint: string;
+    leaveNoBun: string;
   };
   /** The end of doctor. */
   doctor: {
@@ -175,6 +197,55 @@ export interface Catalog {
   /** What the pieces say. */
   pieces: {
     common: PieceTexts;
+    /** The move of a legacy repo to `.agents/runner.json`. */
+    runner: {
+      summary: string;
+      /** A repo in runner mode, with its runner. */
+      inRunner: (runner: string) => string;
+      /** A legacy repo whose tools can all move. */
+      ready: string;
+      /** A legacy repo, when npm does not answer. */
+      legacy: string;
+      /** A legacy repo that cannot move yet: the tools whose minimum npm lacks, as "<package> <minimum>". */
+      waiting: (missing: string[]) => string;
+      /** A legacy repo whose issue-flow in package.json is not an exact version. */
+      notExact: (spec: string) => string;
+      /** A legacy repo that cannot move in this run: the installed tools' pieces it leaves out. */
+      leftOut: (pieces: string[]) => string;
+      /** A repo in runner mode that cannot change runner in this run: the installed tools' pieces it leaves out. */
+      changeLeftOut: (pieces: string[]) => string;
+      /** packageManager of the shortcuts' package.json after a change of runner: set, or removed. */
+      packageManagerSet: (value: string) => string;
+      packageManagerRemoved: string;
+      /** `--runner bun` could not read bun's version, so packageManager stays as it is. */
+      bunVersionUnknown: string;
+      /** Added to the state of a tool whose steps the move takes over. */
+      movedByRunner: string;
+      /** The file written, with its runner. */
+      written: (file: string, runner: string) => string;
+      /** Entries removed from package.json. */
+      cleaned: (names: string[]) => string;
+      /** The `version` key removed from a file. */
+      versionRemoved: (file: string) => string;
+      /** Files and folders deleted. */
+      removed: (paths: string[]) => string;
+      /** The repo keeps dependencies of its own: its manager's install runs at the end. */
+      installLater: (manager: string) => string;
+      /** What did not run after a part of the move failed. */
+      notRun: (names: string[]) => string;
+      /** Added to a runner-mode state with leftovers of the legacy mode. */
+      leftovers: string;
+      /** Leftovers in package.json: tools and scripts. */
+      leftPackage: (names: string[]) => string;
+      /** A `version` key left in a file. */
+      leftVersion: (file: string) => string;
+      /** The session-notice hook not at runner.json's skills-manager. */
+      leftHook: string;
+      /** A script that runs skills-manager unpinned among other commands, left as it is. */
+      scriptKept: (name: string) => string;
+      /** The cleanup, among what did not run. */
+      cleanup: string;
+    };
     skillsManager: {
       summary: string;
       noPackage: string;
@@ -183,6 +254,12 @@ export interface Catalog {
       /** A range left alone, and the version it runs if that is below the minimum. */
       rangeKept: (spec: string, runs: string | null, minimum: string) => string;
       checkMissing: (minimum: string) => string;
+      /** In runner mode: not pinned in `.agents/runner.json`. */
+      missingInRunner: string;
+      /** The same, in doctor. */
+      checkMissingInRunner: string;
+      /** The session-notice hook pinned to a version. */
+      hookPinned: (command: string) => string;
       checkBelow: (version: string, minimum: string) => string;
       checkOk: (version: string, minimum: string) => string;
       checkRangeBelow: (spec: string, runs: string, minimum: string) => string;
@@ -210,6 +287,8 @@ export interface Catalog {
       summary: string;
       unpinned: (config: string) => string;
       checkUnpinned: (config: string, example: string) => string;
+      /** In runner mode: `.agents/runner.json` does not pin it. */
+      checkUnpinnedInRunner: (file: string) => string;
     };
     guard: {
       summary: string;
@@ -224,6 +303,8 @@ export interface Catalog {
       checkNotInstalled: string;
       checkWeaker: (config: string) => string;
       checkOk: (version: string) => string;
+      /** In runner mode, with its manifest but no entry in `.agents/runner.json`. */
+      checkUnpinnedInRunner: string;
     };
     skills: {
       summary: string;
@@ -245,6 +326,8 @@ export interface Catalog {
       noRule: string;
       noImport: string;
       noPackage: string;
+      /** The rule left out at run time: the repo moved to runner.json and has no dependencies of its own. */
+      ruleSkipped: string;
       checkNoRule: string;
       checkNoImport: string;
       checkOk: string;

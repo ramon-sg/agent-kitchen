@@ -17,10 +17,8 @@ import { KitError } from "./output.js";
 import { FLOW_CONFIG } from "./piece.js";
 import { dependencyVersion, readJson } from "./repo.js";
 import { ui } from "./texts/index.js";
-import { captureToolWithout, isRelease, npmLatest } from "./tools.js";
-
-/** github-rest on npm, which opens the PR (REST, never gh's GraphQL). */
-const GITHUB_REST = "@ramon-sg/github-rest";
+import { GITHUB_REST, toolVersion } from "./runner-mode.js";
+import { captureToolWithout, isExactVersion, npmLatest, repoMode, toolText } from "./tools.js";
 
 /** The settings of the repo a commit made in the clone needs: who signs it and how. */
 const IDENTITY = ["user.name", "user.email", "user.signingkey", "commit.gpgsign", "gpg.format", "gpg.program", "gpg.openpgp.program", "gpg.x509.program", "gpg.ssh.program", "gpg.ssh.allowedsignersfile"];
@@ -190,13 +188,14 @@ export function removeClone(clone: string): void {
 }
 
 /**
- * The version of github-rest to open the PR with: the repo's exact one, or npm's latest.
- * @param root - The checkout to read package.json from.
+ * The version of github-rest to open the PR with: the repo's exact one (in runner.json, or in
+ * a legacy repo's package.json), or npm's latest.
+ * @param root - The checkout to read it from.
  * @returns The version, or null if neither is known.
  */
 async function githubRestVersion(root: string): Promise<string | null> {
-  const own = dependencyVersion(readJson(root, "package.json"), GITHUB_REST);
-  if (own !== null && isRelease(own)) return own;
+  const own = repoMode(root).kind === "runner" ? toolVersion(root, GITHUB_REST) : dependencyVersion(readJson(root, "package.json"), GITHUB_REST);
+  if (own !== null && isExactVersion(own)) return own;
   return npmLatest(GITHUB_REST);
 }
 
@@ -225,13 +224,17 @@ async function openPr(root: string, clone: string, branch: string, base: string,
 }
 
 /**
- * What the person can run to open the PR by hand.
+ * What the person can run to open the PR by hand: with the repo's runner and the github-rest
+ * runner.json pins, or in a legacy repo with npx.
+ * @param root - The clone the PR comes from, whose runner.json says which github-rest to use.
  * @param branch - The branch.
  * @param base - The base.
  * @returns The command.
  */
-function prCommand(branch: string, base: string): string {
-  return `npx @ramon-sg/github-rest pr create --head ${branch} --base ${base} --title "${TITLE}" --body "..." --draft`;
+function prCommand(root: string, branch: string, base: string): string {
+  const version = repoMode(root).kind === "runner" ? toolVersion(root, GITHUB_REST) : null;
+  if (version === null) return `npx @ramon-sg/github-rest pr create --head ${branch} --base ${base} --title "${TITLE}" --body "..." --draft`;
+  return toolText(root, [`${GITHUB_REST}@${version}`, "pr", "create", "--head", branch, "--base", base, "--title", TITLE, "--body", "...", "--draft"]);
 }
 
 /**
@@ -276,5 +279,5 @@ export async function publish(root: string, clone: string, options: PublishOptio
   if (!pushed.ok) return { ok: false, pushed: false, problem: ui.pr.push(branch), details: [pushed.err].filter((line) => line !== "") };
   const pr = await openPr(root, clone, branch, base, steps);
   if ("url" in pr) return { ok: true, pushed: true, url: pr.url, details: [] };
-  return { ok: false, pushed: true, problem: ui.pr.open(branch, pr.error), details: [], command: prCommand(branch, base) };
+  return { ok: false, pushed: true, problem: ui.pr.open(branch, pr.error), details: [], command: prCommand(clone, branch, base) };
 }

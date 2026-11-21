@@ -5,59 +5,62 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { mkdirSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
-import { CANDIDATES, installedRepo, makeRepo, npmCloud } from "./helpers.mjs";
+import { CANDIDATES, installedRepo, makeFreshRepo, makeRepo, NPM, npmCloud } from "./helpers.mjs";
 
 const ALL_SKILLS = CANDIDATES.map((candidate) => candidate.id).join(",");
 
-test("--dry-run on an empty repo shows the four pieces and the steps that install them, and changes nothing", () => {
-  const repo = makeRepo();
+test("--dry-run on an empty repo previews the runner-mode plan, says it will create runner.json, and writes nothing", () => {
+  const repo = makeFreshRepo();
 
-  const r = repo.cli(["--dry-run"]);
+  const r = repo.cli(["--dry-run"], { env: { FAKE_NPM: JSON.stringify({ ...NPM, "@ramon-sg/skills-manager": "1.5.0", "@ramon-sg/claude-repo-guard": "0.8.0" }) } });
 
   assert.equal(r.status, 0, r.err);
+  assert.match(r.out, /la corrida real creará \.agents\/runner\.json con el ejecutor bun/);
   assert.match(r.out, /issue-flow +no instalado/);
   assert.match(r.out, /claude-repo-guard +no instalado/);
+  assert.match(r.out, /\[x\] Fijar skills-manager 1\.5\.0 en \.agents\/runner\.json/);
   assert.match(r.out, /\[x\] Instalar issue-flow 0\.2\.0: /);
-  assert.match(r.out, /\[x\] Instalar agent-cloud-kit 1\.1\.0: /);
-  assert.match(r.out, /\[x\] Instalar claude-repo-guard 0\.2\.0: /);
+  assert.match(r.out, /\[x\] Instalar agent-cloud-kit 0\.9\.1: /);
+  assert.match(r.out, /\[x\] Instalar claude-repo-guard 0\.8\.0: /);
   assert.match(r.out, /\[x\] Instalar 4 skills de ramon-sg\/issue-flow y ramon-sg\/agent-skills/);
-  assert.deepEqual(repo.calls(), []);
+  assert.ok(repo.programs().every((program) => program === "bunx"), repo.programs().join(","));
+  assert.ok(repo.allCalls().every((args) => !args.some((arg) => /skills-manager@1\.[0-4]\./.test(arg) || arg.startsWith("github:"))));
+  assert.equal(repo.exists(".agents/runner.json"), false);
   assert.equal(repo.exists("package.json"), false);
 });
 
-test("--yes on an empty repo installs everything in order, each piece with its own tool, every skill offered at the flow's tag", () => {
-  const repo = makeRepo();
+test("--yes on an empty repo installs in order, in runner mode and through bunx, every skill offered at the flow's tag", () => {
+  const repo = makeFreshRepo();
 
   const r = repo.cli(["--yes"]);
 
   assert.equal(r.status, 0, r.err);
+  assert.equal(repo.read(".agents/runner.json").runner, "bun");
+  // The fake registry has no claude-repo-guard on npm, so in runner mode there is no guard step.
   assert.deepEqual(repo.calls(), [
     ["@ramon-sg/issue-flow@0.2.0", "init", "--yes"],
-    ["agent-cloud-kit@1.1.0", "init"],
-    ["github:ramon-sg/claude-repo-guard#v0.2.0", "install", "--yes"],
-    ["@ramon-sg/skills-manager@1.2.0", "init", "--catalog", "ramon-sg/issue-flow#v0.2.0", "--catalog", "ramon-sg/agent-skills", "--select", ALL_SKILLS],
+    ["agent-cloud-kit@0.9.1", "init"],
+    ["@ramon-sg/skills-manager@1.5.0", "init", "--catalog", "ramon-sg/agent-skills", "--select", "catalog:ramon-sg/agent-skills/planning"],
   ]);
-  const guard = repo.read(".claude/repo-guard.config.json");
-  assert.match(guard.environment[0], /draft PR/);
-  assert.equal(guard.weakerNetworkIsolation, process.platform === "darwin" ? true : undefined);
+  assert.ok(repo.programs().every((program) => program === "bunx"));
   assert.match(r.out, /^◒ Instalando issue-flow 0\.2\.0…$/m);
   assert.match(r.out, /✓ issue-flow 0\.2\.0 instalado: config del flujo, hooks y scripts \(\d+,\d s\)$/m);
   assert.doesNotMatch(r.out, /^→ /m);
-  assert.deepEqual(repo.npmCalls().filter((args) => args[0] === "install"), [["install"]]);
-  assert.match(r.out, /✓ Dependencias instaladas con npm/);
+  assert.deepEqual(repo.npmCalls().filter((args) => args[0] === "install"), []);
   assert.match(r.out, /\[ok\] Listo\.\n\n  Falta: revisa el diff y haz commit\./);
 });
 
 test("in the checkout, steps that leave package.json as it was do not install, even if it already had changes", () => {
-  const repo = installedRepo({ cloud: "1.0.0" });
+  const repo = installedRepo({ cloud: "0.9.0" });
   const pkg = repo.read("package.json");
   repo.write("package.json", { ...pkg, scripts: { mio: "true" } });
 
   const r = repo.cli(["--yes"]);
 
   assert.equal(r.status, 0, r.err);
-  assert.equal(repo.read(".claude/cloud.json").version, "1.1.0");
+  assert.equal(repo.read(".claude/cloud.json").version, "0.9.1");
   assert.deepEqual(repo.npmCalls().filter((args) => args[0] === "install"), []);
   assert.doesNotMatch(r.out, /install/);
   assert.match(r.out, /\[ok\] Listo\.\n\n  Falta: revisa el diff y haz commit\./);
@@ -122,7 +125,7 @@ test("a repo at the latest of everything has nothing to do, and asks skills-mana
 });
 
 test("--yes updates each piece behind: the flow and its skills, agent-cloud-kit's pin, the guard, the general skills", () => {
-  const repo = installedRepo({ flow: "0.1.0", cloud: "1.0.0", guard: "0.1.0", general: "v0.1.0" });
+  const repo = installedRepo({ flow: "0.1.0", cloud: "0.9.0", guard: "0.1.0", general: "v0.1.0" });
 
   const r = repo.cli(["--yes"]);
 
@@ -131,14 +134,14 @@ test("--yes updates each piece behind: the flow and its skills, agent-cloud-kit'
     ["@ramon-sg/issue-flow@0.2.0", "upgrade"],
     ["@ramon-sg/skills-manager@1.2.0", "update", "close-pr"],
     ["@ramon-sg/skills-manager@1.2.0", "update", "pr-review-comments"],
-    ["agent-cloud-kit@1.1.0", "init"],
+    ["agent-cloud-kit@0.9.1", "init"],
     ["github:ramon-sg/claude-repo-guard#v0.2.0", "install", "--yes"],
     ["@ramon-sg/skills-manager@1.2.0", "update", "code-audit"],
     ["@ramon-sg/skills-manager@1.2.0", "update", "test-audit"],
   ]);
   assert.deepEqual(Object.values(repo.read(".agents/skills.lock.json").skills).map((skill) => skill.tag), ["v0.2.0", "v0.2.0", "v0.2.0", "v0.2.0"]);
   assert.equal(repo.cli(["doctor"]).status, 0);
-  assert.equal(repo.read(".claude/cloud.json").version, "1.1.0");
+  assert.equal(repo.read(".claude/cloud.json").version, "0.9.1");
   assert.deepEqual(repo.read(".agents/skills.json").sources.map((source) => source.ref), ["v0.2.0", undefined]);
   assert.match(r.out, /issue-flow +0\.1\.0, hay 0\.2\.0/);
   assert.match(r.out, /✓ Skills de ramon-sg\/agent-skills actualizadas a v0\.2\.0: code-audit, test-audit/);
@@ -187,15 +190,15 @@ test("a guard at the latest without the flow's options gets them, at its own ver
 });
 
 test("a step that fails does not stop the rest, says how to retry, and exits 1", () => {
-  const repo = makeRepo();
+  const repo = makeFreshRepo();
 
   const r = repo.cli(["--yes"], { env: { FAKE_FAIL: "agent-cloud-kit" } });
 
   assert.equal(r.status, 1);
-  assert.match(r.err, /agent-cloud-kit init falló; corre 'npx agent-cloud-kit@1\.1\.0 init'/);
+  assert.match(r.err, /agent-cloud-kit init falló; corre 'bunx --bun agent-cloud-kit@0\.9\.1 init'/);
   assert.match(r.err, /fake: agent-cloud-kit failed/);
   assert.match(r.out, /✗ Falló: Instalar agent-cloud-kit/);
-  assert.deepEqual(repo.calls().map((args) => args[0]), ["@ramon-sg/issue-flow@0.2.0", "agent-cloud-kit@1.1.0", "github:ramon-sg/claude-repo-guard#v0.2.0", "@ramon-sg/skills-manager@1.2.0"]);
+  assert.deepEqual(repo.calls().map((args) => args[0]), ["@ramon-sg/issue-flow@0.2.0", "agent-cloud-kit@0.9.1", "@ramon-sg/skills-manager@1.5.0"]);
   assert.match(r.out, /fallaron: Instalar agent-cloud-kit/);
 });
 
@@ -218,9 +221,10 @@ test("--skip leaves pieces out; an unknown piece is a usage error", () => {
 
   assert.equal(r.status, 0, r.err);
   assert.deepEqual(repo.calls().length, 0);
-  assert.doesNotMatch(r.out, /agent-cloud-kit/);
+  // No row of its own; the runner row names it as left out, since moving to runner.json takes every tool.
+  assert.doesNotMatch(r.out, /^ {2}agent-cloud-kit /m);
   assert.equal(unknown.status, 2);
-  assert.match(unknown.err, /no existe la pieza docker; son skills-manager, issue-flow, agent-cloud-kit, claude-repo-guard, skills/);
+  assert.match(unknown.err, /no existe la pieza docker; son runner, skills-manager, issue-flow, agent-cloud-kit, claude-repo-guard, skills/);
 });
 
 test("when npm and GitHub cannot tell the latest, a piece is shown and not updated", () => {
@@ -256,16 +260,16 @@ test("without the issue flow, the guard is not told about it and the skills come
   assert.equal(r.status, 0, r.err);
   assert.ok(repo.allCalls().some((args) => args.includes("--candidates") && !args.includes("ramon-sg/issue-flow#v0.2.0")));
   assert.equal(repo.exists(".claude/repo-guard.config.json") ? repo.read(".claude/repo-guard.config.json").environment : undefined, undefined);
-  assert.deepEqual(repo.calls().at(-1), ["@ramon-sg/skills-manager@1", "init", "--catalog", "ramon-sg/agent-skills", "--select", "catalog:ramon-sg/agent-skills/planning"]);
+  assert.deepEqual(repo.calls().at(-1), ["@ramon-sg/skills-manager@1.2.0", "init", "--catalog", "ramon-sg/agent-skills", "--select", "catalog:ramon-sg/agent-skills/planning"]);
 });
 
 test("the latest tag is the highest version, not the last one as text", () => {
-  const repo = installedRepo({ guard: "0.9.0", tags: { "ramon-sg/claude-repo-guard": ["0.9.0", "0.10.0"], "ramon-sg/agent-skills": ["0.2.0"] } });
+  const repo = installedRepo({ guard: "0.5.9", tags: { "ramon-sg/claude-repo-guard": ["0.5.9", "0.5.10"], "ramon-sg/agent-skills": ["0.2.0"] } });
 
   const r = repo.cli(["--dry-run"]);
 
   assert.equal(r.status, 0, r.err);
-  assert.match(r.out, /\[x\] Actualizar claude-repo-guard 0\.9\.0 → 0\.10\.0/);
+  assert.match(r.out, /\[x\] Actualizar claude-repo-guard 0\.5\.9 → 0\.5\.10/);
 });
 
 test("when the flow is installed in this run, a guard already at the latest gets the flow's options too", () => {
@@ -302,36 +306,36 @@ test("a flow version that is not an exact release is shown and left alone", () =
 });
 
 test("updating moves version and $schema of agent-cloud-kit", () => {
-  const repo = installedRepo({ cloud: "1.0.0" });
-  repo.write(".claude/cloud.json", { $schema: "https://unpkg.com/agent-cloud-kit@1.0.0/schema.json", version: "1.0.0", apt: ["jq"] });
+  const repo = installedRepo({ cloud: "0.9.0" });
+  repo.write(".claude/cloud.json", { $schema: "https://unpkg.com/agent-cloud-kit@0.9.0/schema.json", version: "0.9.0", apt: ["jq"] });
 
   const r = repo.cli(["--yes"]);
 
   assert.equal(r.status, 0, r.err);
-  assert.deepEqual(repo.read(".claude/cloud.json"), { $schema: "https://unpkg.com/agent-cloud-kit@1.1.0/schema.json", version: "1.1.0", apt: ["jq"] });
+  assert.deepEqual(repo.read(".claude/cloud.json"), { $schema: "https://unpkg.com/agent-cloud-kit@0.9.1/schema.json", version: "0.9.1", apt: ["jq"] });
 });
 
 test("updating runs init of the new version, after moving the version", () => {
-  const repo = installedRepo({ cloud: "1.0.0" });
+  const repo = installedRepo({ cloud: "0.9.0" });
 
   const r = repo.cli(["--yes", "--skip", "issue-flow,claude-repo-guard,skills"]);
 
   assert.equal(r.status, 0, r.err);
-  assert.deepEqual(repo.calls(), [["agent-cloud-kit@1.1.0", "init"]]);
-  assert.equal(repo.read(".claude/cloud.json").version, "1.1.0");
+  assert.deepEqual(repo.calls(), [["agent-cloud-kit@0.9.1", "init"]]);
+  assert.equal(repo.read(".claude/cloud.json").version, "0.9.1");
 });
 
 test("a failing init after an update fails the step", () => {
-  const repo = installedRepo({ cloud: "1.0.0" });
+  const repo = installedRepo({ cloud: "0.9.0" });
 
   const r = repo.cli(["--yes", "--skip", "issue-flow,claude-repo-guard,skills"], { env: { FAKE_FAIL: "agent-cloud-kit" } });
 
   assert.equal(r.status, 1);
-  assert.match(r.err, /agent-cloud-kit init falló; corre 'npx agent-cloud-kit@1\.1\.0 init'/);
+  assert.match(r.err, /agent-cloud-kit init falló; corre 'npx agent-cloud-kit@0\.9\.1 init'/);
 });
 
 test("after apply with the piece installed, the next step is printed", () => {
-  const repo = installedRepo({ cloud: "1.0.0" });
+  const repo = installedRepo({ cloud: "0.9.0" });
   const upToDate = installedRepo();
 
   const r = repo.cli(["--yes"]);
@@ -376,7 +380,7 @@ test("the skills lock is where the manifest's paths.lock says", () => {
 
 test("when npm has a newer agent-kitchen it runs that one with the same arguments, and that one does not hand over again", () => {
   const repo = makeRepo();
-  const npm = JSON.stringify({ "agent-kitchen": "9.0.0", "@ramon-sg/issue-flow": "0.2.0", "agent-cloud-kit": "1.1.0" });
+  const npm = JSON.stringify({ "agent-kitchen": "9.0.0", "@ramon-sg/issue-flow": "0.2.0", "agent-cloud-kit": "0.9.1" });
 
   const handed = repo.cli(["--dry-run", "--skip", "skills"], { env: { FAKE_NPM: npm } });
   const calls = repo.calls();
@@ -461,7 +465,7 @@ test("issue-flow set to false acts like --skip issue-flow", () => {
   assert.equal(r.status, 0, r.err);
   assert.ok(repo.allCalls().some((args) => args.includes("--candidates") && !args.includes("ramon-sg/issue-flow#v0.2.0")));
   assert.equal(repo.exists(".claude/repo-guard.config.json") ? repo.read(".claude/repo-guard.config.json").environment : undefined, undefined);
-  assert.deepEqual(repo.calls().at(-1), ["@ramon-sg/skills-manager@1", "init", "--catalog", "ramon-sg/agent-skills", "--select", "catalog:ramon-sg/agent-skills/planning"]);
+  assert.deepEqual(repo.calls().at(-1), ["@ramon-sg/skills-manager@1.2.0", "init", "--catalog", "ramon-sg/agent-skills", "--select", "catalog:ramon-sg/agent-skills/planning"]);
 });
 
 test("--yes without the file does what it did and writes no file", () => {
@@ -488,7 +492,7 @@ test("--dry-run and --skip leave the file as it was", () => {
 });
 
 test("with the file, a new piece is not installed without a terminal, and says so", () => {
-  const repo = makeRepo();
+  const repo = makeFreshRepo();
   repo.write(".agents/kitchen.json", { pieces: { "issue-flow": true, "claude-repo-guard": true, skills: true, "agents-md": true } });
   const text = decisionsText(repo);
 
@@ -535,7 +539,7 @@ test("a broken decisions file stops apply and is left as it was", () => {
 const CLOUD_ONLY = ["--yes", "--skip", "issue-flow,claude-repo-guard,skills"];
 
 test("agent-cloud-kit installs the exact release candidate that npm calls latest", () => {
-  const repo = makeRepo();
+  const repo = makeFreshRepo();
 
   const dry = repo.cli(["--dry-run"], { env: { FAKE_NPM: npmCloud("1.0.0-rc.0") } });
   const r = repo.cli(CLOUD_ONLY, { env: { FAKE_NPM: npmCloud("1.0.0-rc.0") } });
@@ -546,13 +550,14 @@ test("agent-cloud-kit installs the exact release candidate that npm calls latest
   assert.equal(repo.read(".claude/cloud.json").version, "1.0.0-rc.0");
 });
 
-test("agent-cloud-kit falls back to @1 when npm does not answer", () => {
-  const repo = makeRepo();
+test("agent-cloud-kit is not installed when npm does not answer: @1 would be a version that reads runner.json", () => {
+  const repo = makeFreshRepo();
 
   const r = repo.cli(CLOUD_ONLY, { env: { FAKE_NPM: "{}" } });
 
   assert.equal(r.status, 0, r.err);
-  assert.deepEqual(repo.calls(), [["agent-cloud-kit@1", "init"]]);
+  assert.deepEqual(repo.calls(), []);
+  assert.match(r.out, /agent-cloud-kit +no instalado \(npm no responde\)/);
 });
 
 test("a pinned release candidate moves to the next one, with its $schema", () => {
@@ -567,13 +572,13 @@ test("a pinned release candidate moves to the next one, with its $schema", () =>
 });
 
 test("a pinned release candidate moves to the release, and a release schema to a prerelease", () => {
-  const repo = installedRepo({ cloud: "1.0.0-rc.1" });
-  repo.write(".claude/cloud.json", { $schema: "https://unpkg.com/agent-cloud-kit@1.0.0-rc.1/schema.json", version: "1.0.0-rc.1" });
+  const repo = installedRepo({ cloud: "0.9.0-rc.1" });
+  repo.write(".claude/cloud.json", { $schema: "https://unpkg.com/agent-cloud-kit@0.9.0-rc.1/schema.json", version: "0.9.0-rc.1" });
 
-  const r = repo.cli(CLOUD_ONLY, { env: { FAKE_NPM: npmCloud("1.0.0") } });
+  const r = repo.cli(CLOUD_ONLY, { env: { FAKE_NPM: npmCloud("0.9.0") } });
 
   assert.equal(r.status, 0, r.err);
-  assert.deepEqual(repo.read(".claude/cloud.json"), { $schema: "https://unpkg.com/agent-cloud-kit@1.0.0/schema.json", version: "1.0.0" });
+  assert.deepEqual(repo.read(".claude/cloud.json"), { $schema: "https://unpkg.com/agent-cloud-kit@0.9.0/schema.json", version: "0.9.0" });
 });
 
 test("a pinned release candidate equal to latest, or newer than it, offers nothing", () => {
@@ -613,17 +618,103 @@ test("runner mode: an apply that changes package.json with no dependencies of it
   assert.doesNotMatch(r.out, /Dependencias instaladas/);
 });
 
-test("runner mode: apply --yes with the guard installed runs the guard with npx and the rest with bunx, with no stack trace", () => {
+test("runner mode: apply --yes with the guard installed runs the guard from npm with bunx, like the rest, with no stack trace", () => {
   const repo = installedRepo({ guard: "0.1.0" });
-  repo.write(".agents/runner.json", { runner: "bun", tools: {} });
+  repo.write(".agents/runner.json", { runner: "bun", tools: { "@ramon-sg/claude-repo-guard": "0.8.0" } });
+
+  const r = repo.cli(["--yes"], { env: { FAKE_NPM: JSON.stringify({ ...JSON.parse(npmCloud("0.9.1")), "@ramon-sg/claude-repo-guard": "0.8.1" }) } });
+
+  assert.equal(r.status, 0, r.err);
+  assert.doesNotMatch(r.err + r.out, /\n\s+at .*\(/);
+  const calls = repo.allCalls().map((args, i) => ({ args, program: repo.programs()[i] }));
+  assert.ok(calls.some((c) => c.args.join(" ") === "@ramon-sg/claude-repo-guard@0.8.1 apply --yes" && c.program === "bunx"));
+  assert.ok(calls.every((c) => !c.args.some((a) => a.startsWith("github:"))));
+  assert.ok(calls.filter((c) => !c.args.includes("--package")).every((c) => c.program === "bunx"));
+  assert.equal(repo.read(".agents/runner.json").tools["@ramon-sg/claude-repo-guard"], "0.8.1");
+});
+
+// A PATH where bunx is missing: the fake npx, node, and the system's own folders.
+const pathWithoutBunx = (repo) => {
+  const dir = join(repo.tmp, "nobun");
+  mkdirSync(dir);
+  symlinkSync(process.execPath, join(dir, "node"));
+  symlinkSync(join(repo.tmp, "bin", "npx"), join(dir, "npx"));
+  return `${dir}:/usr/bin:/bin`;
+};
+
+test("an empty repo with bunx gets runner.json with bun before any step, and every call goes through bunx", () => {
+  const repo = makeFreshRepo();
 
   const r = repo.cli(["--yes"]);
 
-  assert.doesNotMatch(r.err + r.out, /\n\s+at .*\(/);
-  assert.doesNotMatch(r.err + r.out, /cannot run a GitHub spec/);
-  const calls = repo.allCalls().map((args, i) => ({ args, program: repo.programs()[i] }));
-  const guard = calls.filter((c) => c.args.some((a) => a.startsWith("github:")));
-  assert.ok(guard.length > 0);
-  assert.ok(guard.every((c) => c.program === "npx"));
-  assert.ok(calls.filter((c) => !c.args.some((a) => a.startsWith("github:")) && !c.args.includes("--package")).every((c) => c.program === "bunx"));
+  assert.equal(r.status, 0, r.err);
+  const config = repo.read(".agents/runner.json");
+  assert.equal(config.runner, "bun");
+  assert.ok(repo.allCalls().length > 0);
+  assert.ok(repo.programs().every((program) => program === "bunx"), repo.programs().join(","));
 });
+
+test("an empty repo without bunx and without a terminal gets runner node, the warning, and every call goes through npx", () => {
+  const repo = makeFreshRepo();
+
+  const r = repo.cli(["--yes"], { env: { PATH: pathWithoutBunx(repo) } });
+
+  assert.equal(r.status, 0, r.err);
+  assert.equal(repo.read(".agents/runner.json").runner, "node");
+  assert.match(r.err + r.out, /Bun is not installed: the tools will run with Node/);
+  assert.ok(repo.allCalls().length > 0);
+  assert.ok(repo.programs().every((program) => program === "npx"), repo.programs().join(","));
+});
+
+test("--dry-run on an empty repo does not write runner.json", () => {
+  const repo = makeFreshRepo();
+
+  const r = repo.cli(["--dry-run"]);
+
+  assert.equal(r.status, 0, r.err);
+  assert.equal(repo.exists(".agents/runner.json"), false);
+});
+
+test("a repo with a tool installed and no runner.json stays in legacy mode", () => {
+  const repo = installedRepo({ cloud: "0.9.0" });
+
+  const r = repo.cli(["--yes"]);
+
+  assert.equal(r.status, 0, r.err);
+  assert.equal(repo.exists(".agents/runner.json"), false);
+});
+
+test("a new repo where the run ends without a step is left with no runner.json", () => {
+  const repo = makeFreshRepo();
+
+  const r = repo.cli(["--yes", "--skip", "skills-manager,issue-flow,agent-cloud-kit,claude-repo-guard,skills,agents-md"]);
+
+  assert.equal(r.status, 0, r.err);
+  assert.equal(repo.exists(".agents/runner.json"), false);
+  assert.deepEqual(repo.calls(), []);
+});
+
+test("a new repo whose steps ran says in the ending that runner.json is new", () => {
+  const repo = makeFreshRepo();
+
+  const r = repo.cli(["--yes", "--skip", "agent-cloud-kit,skills-manager,claude-repo-guard,skills,agents-md"]);
+
+  assert.equal(r.status, 0, r.err);
+  assert.equal(repo.read(".agents/runner.json").runner, "bun");
+  assert.match(r.out, /\.agents\/runner\.json es nuevo y quedó sin commit/);
+});
+
+for (const [name, setup] of [
+  ["issue-flow in devDependencies", (repo) => repo.write("package.json", { devDependencies: { "@ramon-sg/issue-flow": "0.1.0" } })],
+  ["the guard's manifest", (repo) => repo.write(".claude/repo-guard.manifest.json", { version: "0.1.0" })],
+  [".agents/skills.json", (repo) => repo.write(".agents/skills.json", { sources: [] })],
+]) {
+  test(`a repo with ${name} is not new: no runner.json is written`, () => {
+    const repo = makeFreshRepo();
+    setup(repo);
+
+    const r = repo.cli(["--dry-run"]);
+
+    assert.doesNotMatch(r.out, /la corrida real creará/);
+  });
+}
