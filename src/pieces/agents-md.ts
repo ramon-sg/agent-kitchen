@@ -3,11 +3,13 @@
  * before using it, instead of the one it remembers. It is one fixed line, so AGENTS.md stays
  * small: it loads in every session. This piece has no tool of its own: agent-kitchen writes
  * the line, as it writes the guard's options. Claude Code does not read AGENTS.md when the
- * repo has a CLAUDE.md, so that file gets `@AGENTS.md` too. Only for repos with package.json.
+ * repo has a CLAUDE.md, so that file gets `@AGENTS.md` too. Only for repos with package.json, and, when the repo runs its tools through a runner, only if it has dependencies of its own.
  */
 import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Check, Context, PieceStatus } from "../piece.js";
+import { ownDependencies } from "../repo.js";
+import { repoMode } from "../tools.js";
 import { ui } from "../texts/index.js";
 
 /** The piece's name, as `--skip` takes it. */
@@ -52,6 +54,17 @@ function sameFile(root: string): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * Whether the rule is pointless here: a repo that runs its tools through bunx or npx has no
+ * node_modules of the ecosystem's, so the rule only matters if it has dependencies of its own.
+ * Repos without runner.json keep the rule as before.
+ * @param root - The repo.
+ * @returns Whether to leave it out.
+ */
+function pointless(root: string): boolean {
+  return repoMode(root).kind === "runner" && ownDependencies(root).length === 0;
 }
 
 /**
@@ -104,6 +117,7 @@ function write(context: Context): boolean {
  */
 export async function agentsMdStatus(root: string, flowComing: boolean): Promise<PieceStatus | null> {
   if (!existsSync(join(root, "package.json")) && !flowComing) return null;
+  if (pointless(root)) return null;
   const lack = missing(root);
   const said = ui.pieces.agentsMd;
   const summary = said.summary;
@@ -119,7 +133,7 @@ export async function agentsMdStatus(root: string, flowComing: boolean): Promise
  * @example (await agentsMdChecks(root))[0].status // "ok"
  */
 export async function agentsMdChecks(root: string): Promise<Check[]> {
-  if (!existsSync(join(root, "package.json"))) return [];
+  if (!existsSync(join(root, "package.json")) || pointless(root)) return [];
   const lack = missing(root);
   const checks: Check[] = [];
   if (lack.rule) checks.push({ name: NAME, status: "info", detail: ui.pieces.agentsMd.checkNoRule });

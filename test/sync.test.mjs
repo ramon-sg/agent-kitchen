@@ -599,3 +599,16 @@ test("doctor accepts a pinned release candidate and notes the next one", () => {
   assert.doesNotMatch(r.out, /no fija una versión exacta/);
   assert.match(r.out, /· agent-cloud-kit: 1\.0\.0-rc\.0, hay 1\.0\.0-rc\.1/);
 });
+
+test("runner mode: an apply that changes package.json with no dependencies of its own does not install", () => {
+  const repo = makeRepo();
+  repo.write(".agents/runner.json", { runner: "bun", tools: {} });
+  repo.write(".agents/kitchen.json", { pieces: { "skills-manager": false, "issue-flow": true, "agent-cloud-kit": false, "claude-repo-guard": false, skills: false, "agents-md": false } });
+
+  const r = repo.cli(["--yes"]);
+
+  assert.equal(r.status, 0, r.err);
+  assert.equal(repo.exists("package.json"), true);
+  assert.deepEqual(repo.npmCalls().filter((args) => args[0] === "install"), []);
+  assert.doesNotMatch(r.out, /Dependencias instaladas/);
+});

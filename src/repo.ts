@@ -96,6 +96,22 @@ export function dependencyVersion(pkg: Record<string, unknown> | null, name: str
   return null;
 }
 
+/** The tools of the ecosystem: dependencies of a repo that only run them, not code of its own. */
+const ECOSYSTEM_TOOLS = ["@ramon-sg/issue-flow", "@ramon-sg/github-rest", "@ramon-sg/skills-manager", "@ramon-sg/claude-repo-guard", "agent-cloud-kit"];
+
+/**
+ * The names in `dependencies` and `devDependencies` of package.json that are not tools of the
+ * ecosystem: what the repo itself needs installed.
+ * @param root - The repo.
+ * @returns The names; none without package.json.
+ * @example ownDependencies(root) // ["react"]
+ */
+export function ownDependencies(root: string): string[] {
+  const pkg = readJson(root, "package.json");
+  const names = ["dependencies", "devDependencies"].flatMap((field) => (isObject(pkg?.[field]) ? Object.keys(pkg[field]) : []));
+  return [...new Set(names)].filter((name) => !ECOSYSTEM_TOOLS.includes(name));
+}
+
 /** The lockfile of each package manager, in the order they are looked for. */
 const LOCKFILES: [string, string][] = [
   ["bun.lock", "bun"],
