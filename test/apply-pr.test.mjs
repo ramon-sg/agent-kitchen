@@ -304,3 +304,17 @@ test("changedPaths reads paths with spaces and renames", () => {
 
   assert.deepEqual(changedPaths(repo.main).sort(), ["a b.txt", "nuevo.txt"]);
 });
+
+test("--pr on a new repo lists runner.json in the commit and brings it in the PR", () => {
+  const repo = makeFreshRepo({ origin: true });
+
+  const r = repo.cli(["--yes", "--pr", "--skip", "agent-cloud-kit,skills-manager,claude-repo-guard,skills,agents-md"]);
+
+  // The fake flow (0.2.0) does not pin github-rest in runner.json as the real one does, so the PR itself is not opened;
+  // the branch is pushed with the commit, which is what this test is about.
+  assert.match(r.out, /La rama .* está en origin/);
+  const branch = `origin/${today()}`;
+  assert.match(repo.git("log", "-1", "--format=%B", branch), /- Crear \.agents\/runner\.json con el ejecutor bun/);
+  assert.ok(repo.git("show", "--name-only", "--format=", branch).split("\n").includes(".agents/runner.json"));
+  assert.equal(repo.exists(".agents/runner.json"), false);
+});

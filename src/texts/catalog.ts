@@ -84,6 +84,10 @@ export interface Catalog {
   nothingChanged: string;
   /** The line of a first run that writes runner.json: the runner chosen. */
   runnerWritten: (file: string, runner: string) => string;
+  /** With --dry-run on a new repo: the real run will create the file. */
+  runnerWillWrite: (file: string, runner: string) => string;
+  /** At the end of a run in the checkout that created the file: it is not committed. */
+  runnerLeft: (file: string) => string;
   /** The same, as a warning after the program's name. */
   nothingChangedWarning: string;
   /** With --pr, before the clone: from which branch of origin. */

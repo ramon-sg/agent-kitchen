@@ -28,6 +28,8 @@
  * uses, writes all of them to the file, and then goes on as usual.
  * The run ends in a block with Kuro (banner.ts): how it went and what is left to do.
  */
+import { rmSync } from "node:fs";
+import { join } from "node:path";
 import { type Block, show } from "../banner.js";
 import { DECIDABLE, decide, DECISIONS, off, readDecisions, type Saved, undecided, writeDecisions } from "../decisions.js";
 import { behindUpstream, baseBranch, changedPaths, cloneFromOrigin, originUrl, publish, removeClone } from "../pr-clone.js";
@@ -41,10 +43,10 @@ import { keepOwn, NAME as SKILLS, ownInPick, skillsStatus } from "../pieces/skil
 import { agentsMdStatus, NAME as AGENTS_MD } from "../pieces/agents-md.js";
 import { NAME as SKILLS_MANAGER, skillsManagerStatus } from "../pieces/skills-manager.js";
 import { dependencyVersion, mainCheckout, ownDependencies, packageManager, packageText, readJson } from "../repo.js";
-import { download, failedOutput, repoMode, runInstall, setVerbose, toolText } from "../tools.js";
+import { download, failedOutput, previewRunner, repoMode, runInstall, setVerbose, toolText } from "../tools.js";
 import { CLOUD_CONFIG, CLOUD_PACKAGE, GUARD_MANIFEST, toolVersion } from "../runner-mode.js";
-import { commitLine, DECISIONS_LINE } from "../commit-texts.js";
-import { chooseRunner, RUNNER_FILE, writeRunnerConfig } from "@ramon-sg/runner";
+import { commitLine, DECISIONS_LINE, runnerLine } from "../commit-texts.js";
+import { chooseRunner, RUNNER_FILE, type Runner, writeRunnerConfig } from "@ramon-sg/runner";
 import { type Progress, progressFor } from "../progress.js";
 import { phrases, stepLabel, ui } from "../texts/index.js";
 
@@ -160,11 +162,12 @@ function savedMessage(commits: boolean): string {
  * run wrote it, in the commit's texts (not the interface's).
  * @param done - The steps that worked.
  * @param wrote - Whether the decisions file was written in this run.
+ * @param runner - The runner of the runner.json this run created, if it did.
  * @returns The lines.
  * @example commitLabels([], true) // ["Guardar qué piezas usa el repo en .agents/kitchen.json"]
  */
-export function commitLabels(done: Pick<Step, "text">[], wrote: boolean): string[] {
-  const lines = done.map((step) => commitLine(step.text));
+export function commitLabels(done: Pick<Step, "text">[], wrote: boolean, runner: string | null = null): string[] {
+  const lines = [...(runner === null ? [] : [runnerLine(runner)]), ...done.map((step) => commitLine(step.text))];
   return wrote ? [...lines, DECISIONS_LINE] : lines;
 }
 
@@ -343,6 +346,21 @@ export async function sync(options: SyncOptions, out: Output): Promise<number> {
   const root = mainCheckout(options.cwd, "agent-kitchen apply");
   repoMode(root); // an unusable runner.json stops the run here, before anything is asked or changed
   setVerbose(options.verbose);
+  try {
+    return await syncIn(root, options, out);
+  } finally {
+    previewRunner(null);
+  }
+}
+
+/**
+ * The rest of the command, once the repo is known and usable.
+ * @param root - The repo.
+ * @param options - The options.
+ * @param out - Where to write and ask.
+ * @returns 0, or 1 if a step failed or the person cancelled.
+ */
+async function syncIn(root: string, options: SyncOptions, out: Output): Promise<number> {
   const place = await choosePlace(root, options, out);
   if (place === null) {
     out.stdout(`${ui.nothingChanged}\n`);
@@ -378,23 +396,25 @@ function isNewRepo(root: string): boolean {
 }
 
 /**
- * Writes `.agents/runner.json` with the runner chosen (Bun if it is installed; without it, the
- * person's answer in a terminal, else Node with a warning), so every tool installs in runner
- * mode. `--dry-run` writes nothing.
+ * Settles the runner of a new repo: Bun if it is installed; without it, the person's answer in
+ * a terminal, else Node with a warning. With `--dry-run` nothing is written or asked: the repo
+ * only pretends to have that runner, so the pieces show what the real run would do.
+ * Otherwise `.agents/runner.json` is written, so every tool installs in runner mode.
  * @param root - The repo.
  * @param asks - Whether there is a terminal to ask in.
  * @param dryRun - Whether to write nothing.
  * @param out - Where to write.
- * @returns True if the file was written, false if not (dry run), null if the person chose to leave.
+ * @returns The runner, or null if the person chose to leave.
  */
-async function startRunnerMode(root: string, asks: boolean, dryRun: boolean, out: Output): Promise<boolean | null> {
-  if (dryRun) return false;
+async function startRunnerMode(root: string, asks: boolean, dryRun: boolean, out: Output): Promise<Runner | null> {
   const chosen = await chooseRunner(asks ? { ask: askNoBun } : {});
   if (chosen === null) return null;
   if (chosen.warning !== null) warn(out, chosen.warning);
-  writeRunnerConfig(root, { runner: chosen.runner, tools: {}, extra: {} });
-  out.stdout(`${ui.runnerWritten(RUNNER_FILE, chosen.runner)}\n`);
-  return true;
+  if (dryRun) {
+    previewRunner(chosen.runner);
+    out.stdout(`${ui.runnerWillWrite(RUNNER_FILE, chosen.runner)}\n`);
+  } else writeRunnerConfig(root, { runner: chosen.runner, tools: {}, extra: {} });
+  return chosen.runner;
 }
 
 /**
@@ -423,10 +443,19 @@ async function applyIn(work: Workplace, options: SyncOptions, out: Output): Prom
   const saves = asks && options.skip.length === 0;
   if (out.interactive) out.stdout(`${ui.checking}\n`);
   // A new repo is written in runner mode before the pieces are looked at, so none of them works in legacy terms.
-  if (isNewRepo(root) && (await startRunnerMode(root, asks, options.dryRun, out)) === null) {
-    out.stdout(`${ui.nothingChanged}\n`);
-    return 1;
+  let created: Runner | null = null;
+  if (isNewRepo(root)) {
+    created = await startRunnerMode(root, asks, options.dryRun, out);
+    if (created === null) {
+      out.stdout(`${ui.nothingChanged}\n`);
+      return 1;
+    }
   }
+  // The file this run wrote is only worth keeping if a step runs: a run that ends without one leaves nothing behind.
+  const wroteRunner = created !== null && !options.dryRun;
+  const dropRunner = (): void => {
+    if (wroteRunner) rmSync(join(root, RUNNER_FILE), { force: true });
+  };
   let statuses = await statusesOf(root, skip);
   if (saved !== null && !asks && !options.dryRun) {
     const left = undecided(saved).filter((name) => statuses.some((status) => status.name === name && !status.installed));
@@ -450,6 +479,7 @@ async function applyIn(work: Workplace, options: SyncOptions, out: Output): Prom
   const cloud = (): Pick<Block, "next"> => (work.kind === "here" && !options.dryRun ? cloudNext(root, skip) : {});
   // In a clone, a run that only wrote the decisions file still ends in a PR.
   const endWithoutSteps = async (title: string, lines: string[] = []): Promise<number> => {
+    dropRunner();
     if (work.kind === "pr" && wrote) {
       out.stdout(`${[title, ...lines].join("\n")}\n`);
       return openPr(work, commitLabels([], true), [], progress, out);
@@ -465,21 +495,23 @@ async function applyIn(work: Workplace, options: SyncOptions, out: Output): Prom
   if (saves && Array.isArray(chosen)) wrote = saveDecisions(root, saved, statuses, chosen, pr, out) || wrote;
   if (chosen === "leave") return endWithoutSteps(ui.noSteps("leave", wrote));
   if (chosen === null) {
+    dropRunner();
     if (wrote) return endWithoutSteps(ui.noSteps("leave", wrote));
     if (!options.dryRun && out.interactive) warn(out, ui.nothingChangedWarning);
     return options.dryRun || !out.interactive ? 0 : 1;
   }
   if (chosen.length === 0) return options.yes ? endWithoutSteps(ui.allSet, [ui.onlyOptional(steps.map(stepLabel))]) : endWithoutSteps(ui.noSteps("none", wrote));
+  if (wroteRunner && created !== null) out.stdout(`${ui.runnerWritten(RUNNER_FILE, created)}\n`);
   const pkgBefore = packageText(root);
   const failedSteps: Step[] = [];
   for (const step of chosen) {
     if (!(await runStep(root, step, progress, out))) failedSteps.push(step);
   }
   const failed = failedSteps.map(stepLabel);
-  if (work.kind === "pr") return openPr(work, commitLabels(chosen.filter((step) => !failedSteps.includes(step)), wrote), failed, progress, out);
+  if (work.kind === "pr") return openPr(work, commitLabels(chosen.filter((step) => !failedSteps.includes(step)), wrote, wroteRunner ? created : null), failed, progress, out);
   const installFailed = packageText(root) !== pkgBefore && needsInstall(root) ? !(await install(root, progress, out)) : false;
   if (installFailed) failed.push(phrases({ kind: "install-deps", manager: packageManager(root) }).menu);
-  show(out, { mood: failed.length === 0 ? "ok" : "error", title: ui.summary(failed), lines: [ui.next(installFailed ? packageManager(root) : null)], ...cloud() }, root);
+  show(out, { mood: failed.length === 0 ? "ok" : "error", title: ui.summary(failed), lines: [ui.next(installFailed ? packageManager(root) : null), ...(wroteRunner ? [ui.runnerLeft(RUNNER_FILE)] : [])], ...cloud() }, root);
   return failed.length === 0 ? 0 : 1;
 }
 

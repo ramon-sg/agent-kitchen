@@ -154,6 +154,8 @@ export const es: Catalog = {
     return wrote ? "No elegiste pasos; solo guardé qué piezas usa el repo." : "No elegiste nada; no se cambió nada.";
   },
   nothingChanged: "No se cambió nada.",
+  runnerWillWrite: (file, runner) => `Repo nuevo: la corrida real creará ${file} con el ejecutor ${runner}; lo que sigue ya es en ese modo.`,
+  runnerLeft: (file) => `${file} es nuevo y quedó sin commit; inclúyelo en el commit.`,
   runnerWritten: (file, runner) => `Repo nuevo: escribí ${file} con el ejecutor ${runner}; todas las herramientas se instalan con él.`,
   nothingChangedWarning: "no se cambió nada.",
   cloning: (base) => `Trabajo en una copia temporal de origin/${base}; tu rama y tus archivos no se tocan.`,

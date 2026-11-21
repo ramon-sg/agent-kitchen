@@ -154,6 +154,8 @@ export const en: Catalog = {
     return wrote ? "You picked no steps; only saved which pieces the repo uses." : "You picked nothing; nothing was changed.";
   },
   nothingChanged: "Nothing was changed.",
+  runnerWillWrite: (file, runner) => `New repo: the real run will create ${file} with the ${runner} runner; what follows is already in that mode.`,
+  runnerLeft: (file) => `${file} is new and uncommitted; include it in your commit.`,
   runnerWritten: (file, runner) => `New repo: wrote ${file} with the ${runner} runner; every tool installs with it.`,
   nothingChangedWarning: "nothing was changed.",
   cloning: (base) => `Working in a temporary copy of origin/${base}; your branch and your files are not touched.`,

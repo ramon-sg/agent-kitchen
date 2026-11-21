@@ -278,6 +278,19 @@ export async function latestTag(repo: string): Promise<string | null> {
  */
 export type RepoMode = { kind: "runner"; runner: Runner; tools: Record<string, string> } | { kind: "legacy" };
 
+/** The runner a `--dry-run` on a new repo pretends the repo has, without writing the file. */
+let preview: Runner | null = null;
+
+/**
+ * Makes `repoMode` answer runner mode, with this runner and no pinned tools, for a repo with no
+ * runner.json: what a dry run on a new repo shows is what the real run would do. It is process
+ * state, so whoever sets it clears it with null.
+ * @param runner - The runner to pretend, or null to stop.
+ */
+export function previewRunner(runner: Runner | null): void {
+  preview = runner;
+}
+
 /**
  * How a repo runs its tools. Every read of `.agents/runner.json` goes through here.
  * @param root - The repo.
@@ -289,6 +302,7 @@ export type RepoMode = { kind: "runner"; runner: Runner; tools: Record<string, s
  */
 export function repoMode(root: string): RepoMode {
   const config = runnerConfig(root);
+  if (config === null && preview !== null) return { kind: "runner", runner: preview, tools: {} };
   return config === null ? { kind: "legacy" } : { kind: "runner", runner: effectiveRunner(config), tools: { ...config.tools } };
 }
 

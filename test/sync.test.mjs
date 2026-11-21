@@ -7,23 +7,27 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { mkdirSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
-import { CANDIDATES, installedRepo, makeFreshRepo, makeRepo, npmCloud } from "./helpers.mjs";
+import { CANDIDATES, installedRepo, makeFreshRepo, makeRepo, NPM, npmCloud } from "./helpers.mjs";
 
 const ALL_SKILLS = CANDIDATES.map((candidate) => candidate.id).join(",");
 
-test("--dry-run on an empty repo shows the four pieces and the steps that install them, and changes nothing", () => {
+test("--dry-run on an empty repo previews the runner-mode plan, says it will create runner.json, and writes nothing", () => {
   const repo = makeFreshRepo();
 
-  const r = repo.cli(["--dry-run"]);
+  const r = repo.cli(["--dry-run"], { env: { FAKE_NPM: JSON.stringify({ ...NPM, "@ramon-sg/skills-manager": "1.5.0", "@ramon-sg/claude-repo-guard": "0.8.0" }) } });
 
   assert.equal(r.status, 0, r.err);
+  assert.match(r.out, /la corrida real creará \.agents\/runner\.json con el ejecutor bun/);
   assert.match(r.out, /issue-flow +no instalado/);
   assert.match(r.out, /claude-repo-guard +no instalado/);
+  assert.match(r.out, /\[x\] Fijar skills-manager 1\.5\.0 en \.agents\/runner\.json/);
   assert.match(r.out, /\[x\] Instalar issue-flow 0\.2\.0: /);
   assert.match(r.out, /\[x\] Instalar agent-cloud-kit 0\.9\.1: /);
-  assert.match(r.out, /\[x\] Instalar claude-repo-guard 0\.2\.0: /);
+  assert.match(r.out, /\[x\] Instalar claude-repo-guard 0\.8\.0: /);
   assert.match(r.out, /\[x\] Instalar 4 skills de ramon-sg\/issue-flow y ramon-sg\/agent-skills/);
-  assert.deepEqual(repo.calls(), []);
+  assert.ok(repo.programs().every((program) => program === "bunx"), repo.programs().join(","));
+  assert.ok(repo.allCalls().every((args) => !args.some((arg) => /skills-manager@1\.[0-4]\./.test(arg) || arg.startsWith("github:"))));
+  assert.equal(repo.exists(".agents/runner.json"), false);
   assert.equal(repo.exists("package.json"), false);
 });
 
@@ -678,3 +682,38 @@ test("a repo with a tool installed and no runner.json stays in legacy mode", () 
   assert.equal(r.status, 0, r.err);
   assert.equal(repo.exists(".agents/runner.json"), false);
 });
+
+test("a new repo where the run ends without a step is left with no runner.json", () => {
+  const repo = makeFreshRepo();
+
+  const r = repo.cli(["--yes", "--skip", "skills-manager,issue-flow,agent-cloud-kit,claude-repo-guard,skills,agents-md"]);
+
+  assert.equal(r.status, 0, r.err);
+  assert.equal(repo.exists(".agents/runner.json"), false);
+  assert.deepEqual(repo.calls(), []);
+});
+
+test("a new repo whose steps ran says in the ending that runner.json is new", () => {
+  const repo = makeFreshRepo();
+
+  const r = repo.cli(["--yes", "--skip", "agent-cloud-kit,skills-manager,claude-repo-guard,skills,agents-md"]);
+
+  assert.equal(r.status, 0, r.err);
+  assert.equal(repo.read(".agents/runner.json").runner, "bun");
+  assert.match(r.out, /\.agents\/runner\.json es nuevo y quedó sin commit/);
+});
+
+for (const [name, setup] of [
+  ["issue-flow in devDependencies", (repo) => repo.write("package.json", { devDependencies: { "@ramon-sg/issue-flow": "0.1.0" } })],
+  ["the guard's manifest", (repo) => repo.write(".claude/repo-guard.manifest.json", { version: "0.1.0" })],
+  [".agents/skills.json", (repo) => repo.write(".agents/skills.json", { sources: [] })],
+]) {
+  test(`a repo with ${name} is not new: no runner.json is written`, () => {
+    const repo = makeFreshRepo();
+    setup(repo);
+
+    const r = repo.cli(["--dry-run"]);
+
+    assert.doesNotMatch(r.out, /la corrida real creará/);
+  });
+}

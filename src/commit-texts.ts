@@ -15,6 +15,16 @@ export const COMMIT_TITLE = "chore: agent-kitchen apply";
 export const DECISIONS_LINE = `Guardar qué piezas usa el repo en ${DECISIONS}`;
 
 /**
+ * The line of the runner file a run created.
+ * @param runner - The runner it names.
+ * @returns The line, without the dash.
+ * @example runnerLine("bun") // "Crear .agents/runner.json con el ejecutor bun"
+ */
+export function runnerLine(runner: string): string {
+  return `Crear .agents/runner.json con el ejecutor ${runner}`;
+}
+
+/**
  * A step's line in the commit and the PR.
  * @param text - What the step does.
  * @returns The line, without the dash.
