@@ -8,7 +8,7 @@
     "agent-kitchen": "dist/cli.js"
   },
   "files": [
-    "dist"
+    "dist/cli.js"
   ],
   "engines": {
     "node": ">=20"
@@ -22,15 +22,15 @@
     "url": "git+https://github.com/ramon-sg/agent-kitchen.git"
   },
   "scripts": {
-    "build": "tsc",
-    "test": "tsc && node --test test/*.test.mjs",
+    "build": "tsc --noEmit && node scripts/bundle.mjs",
+    "test": "tsc && node scripts/bundle.mjs && node --test test/*.test.mjs",
     "prepublishOnly": "npm test"
   },
-  "dependencies": {
-    "@clack/prompts": "1.8.1"
-  },
   "devDependencies": {
+    "@clack/prompts": "1.8.1",
+    "@ramon-sg/runner": "1.0.0",
     "@types/node": "^24.0.0",
+    "esbuild": "0.28.2",
     "typescript": "^5.9.3"
   }
 }

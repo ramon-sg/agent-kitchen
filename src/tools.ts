@@ -1,15 +1,21 @@
 /**
- * @file How agent-kitchen reaches the other tools and their releases: `npx` to run them (always
- * by their scoped name or GitHub spec, because the unscoped names on npm belong to other
- * people), `npm view` for the latest version on npm and a version's dependencies, and `git ls-remote` for the latest
+ * @file How agent-kitchen reaches the other tools and their releases: the repo's runner to run
+ * them (always by their scoped name or GitHub spec, because the unscoped names on npm belong to
+ * other people), an HTTP read of the npm registry for the latest version and a version's dependencies, and `git ls-remote` for the latest
  * `vX.Y.Z` tag on GitHub. Everything is asynchronous so the lookups run at the same time,
  * and each lookup runs once per process. A lookup that fails, or takes over 20 seconds,
  * gives null: the piece is shown, not offered. git never asks for credentials here.
+ *
+ * The runner is the one `.agents/runner.json` names: `bunx --bun <pkg>@<version>` with Bun (the
+ * default) and `npx --yes <pkg>@<version>` with Node. A repo without that file runs every tool
+ * with `npx --yes <spec>`, as before it existed.
  *
  * The tools run quietly: their output is kept and shown only when they fail, so the person
  * reads one line per step. `--verbose` shows it as it comes.
  */
 import { spawn } from "node:child_process";
+import { effectiveRunner, readRunnerConfig, RunnerFileError, toolCommand, toolCommandText, type Runner } from "@ramon-sg/runner";
+import { KitError } from "./output.js";
 
 /** A release version. */
 const VERSION = /^(\d+)\.(\d+)\.(\d+)$/;
@@ -182,13 +188,34 @@ export function npmLatestExact(name: string): Promise<string | null> {
 }
 
 /**
- * What `npm view <name> version` prints.
+ * A package's page on the npm registry (its packument).
+ * @param name - The package, scoped or not; a scope's slash goes encoded as npm does.
+ * @returns What the registry answers, or null if it cannot be reached, does not answer 200 or does not send JSON.
+ */
+async function packument(name: string): Promise<Record<string, unknown> | null> {
+  const registry = (process.env.AGENT_KITCHEN_REGISTRY || process.env.npm_config_registry || "https://registry.npmjs.org").replace(/\/+$/, "");
+  try {
+    const response = await fetch(`${registry}/${name.replace("/", "%2f")}`, { signal: AbortSignal.timeout(LOOKUP_TIMEOUT_MS), headers: { accept: "application/json" } });
+    if (response.status !== 200) return null;
+    const found: unknown = await response.json();
+    return typeof found === "object" && found !== null && !Array.isArray(found) ? (found as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Whether a value is a plain object. */
+const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
+
+/**
+ * The version npm calls `latest`.
  * @param name - The package.
- * @returns The text, or "" if npm fails.
+ * @returns The version, or "" if the registry cannot tell.
  */
 async function npmVersion(name: string): Promise<string> {
-  const result = await run("npm", ["view", name, "version", "--fetch-retries=0"], { timeout: LOOKUP_TIMEOUT_MS });
-  return result.status === 0 ? result.out.trim() : "";
+  const tags = (await packument(name))?.["dist-tags"];
+  const latest = isRecord(tags) ? tags.latest : undefined;
+  return typeof latest === "string" ? latest.trim() : "";
 }
 
 /**
@@ -199,14 +226,12 @@ async function npmVersion(name: string): Promise<string> {
  */
 export function npmDependencies(spec: string): Promise<Record<string, string> | null> {
   return once(`npm-deps:${spec}`, async () => {
-    const result = await run("npm", ["view", spec, "dependencies", "--json", "--fetch-retries=0"], { timeout: LOOKUP_TIMEOUT_MS });
-    if (result.status !== 0) return null;
-    try {
-      const found: unknown = JSON.parse(result.out);
-      return typeof found === "object" && found !== null && !Array.isArray(found) ? (found as Record<string, string>) : null;
-    } catch {
-      return null;
-    }
+    const at = spec.lastIndexOf("@");
+    if (at <= 0) return null;
+    const versions = (await packument(spec.slice(0, at)))?.versions;
+    const found = isRecord(versions) ? versions[spec.slice(at + 1)] : undefined;
+    if (!isRecord(found)) return null;
+    return found.dependencies === undefined ? {} : isRecord(found.dependencies) ? (found.dependencies as Record<string, string>) : null;
   });
 }
 
@@ -226,14 +251,91 @@ export function latestTag(repo: string): Promise<string | null> {
 }
 
 /**
- * Downloads a package into npx's cache without running it, once per package, so its step
- * starts at once. A failed download is ignored: the step itself will say what failed.
+ * How a repo runs its tools: with the runner its `.agents/runner.json` names (Bun when it names
+ * none), or, without that file, with npx as before.
+ */
+export type RepoMode = { kind: "runner"; runner: Runner } | { kind: "legacy" };
+
+/**
+ * How a repo runs its tools. Every read of `.agents/runner.json` goes through here.
  * @param root - The repo.
- * @param spec - The package, as npx takes it.
+ * It re-reads the file on every call, so the mode can change in the middle of a run (for example
+ * after a tool's apply writes runner.json).
+ * @returns Runner mode with its runner, or legacy mode if the repo has no runner.json.
+ * @throws KitError If runner.json exists but cannot be used (the one place that turns a RunnerFileError into one).
+ * @example repoMode(root) // { kind: "runner", runner: "bun" }
+ */
+export function repoMode(root: string): RepoMode {
+  let config;
+  try {
+    config = readRunnerConfig(root);
+  } catch (error) {
+    if (error instanceof RunnerFileError) throw new KitError(error.message);
+    throw error;
+  }
+  return config === null ? { kind: "legacy" } : { kind: "runner", runner: effectiveRunner(config) };
+}
+
+/**
+ * Splits a spec into its package and its version, at the last `@` that does not start it.
+ * @param spec - The package and its version, as `name@x.y.z` or `@scope/name@x.y.z`.
+ * @returns The package and the version.
+ * @throws {Error} For a spec without a version: a runner takes none.
+ * @example splitSpec("@ramon-sg/issue-flow@0.2.0") // { pkg: "@ramon-sg/issue-flow", version: "0.2.0" }
+ */
+function splitSpec(spec: string): { pkg: string; version: string } {
+  const at = spec.lastIndexOf("@");
+  if (at <= 0 || at === spec.length - 1) throw new Error(`a runner needs a spec with a version: ${spec}`);
+  return { pkg: spec.slice(0, at), version: spec.slice(at + 1) };
+}
+
+/**
+ * The program and arguments that run a tool in the repo. A `github:` spec always runs with
+ * `npx --yes`, even in runner mode, until claude-repo-guard is on npm (Part B, Task B1).
+ * @param root - The repo.
+ * @param args - The spec and the tool's arguments.
+ * @returns `npx --yes <args>` in legacy mode or for a GitHub spec, else the runner's command.
+ */
+function toolInvocation(root: string, args: string[]): { file: string; args: string[] } {
+  const mode = repoMode(root);
+  const [spec = "", ...rest] = args;
+  if (mode.kind === "legacy" || spec.startsWith("github:")) return { file: "npx", args: ["--yes", ...args] };
+  const { pkg, version } = splitSpec(spec);
+  return toolCommand(mode.runner, pkg, version, rest);
+}
+
+/**
+ * The command that runs a tool in the repo, to show to the person so they can run it by hand.
+ * @param root - The repo.
+ * @param args - The spec and the tool's arguments.
+ * A `github:` spec is shown with `npx` even in runner mode, until claude-repo-guard is on npm (Part B, Task B1).
+ * @returns `npx <args>` in legacy mode or for a GitHub spec, else the runner's command, quoted for a shell.
+ * @example toolText(root, ["agent-cloud-kit@1.1.0", "init"]) // "bunx --bun agent-cloud-kit@1.1.0 init"
+ */
+export function toolText(root: string, args: string[]): string {
+  const mode = repoMode(root);
+  const [spec = "", ...rest] = args;
+  if (mode.kind === "legacy" || spec.startsWith("github:")) return `npx ${args.join(" ")}`;
+  const { pkg, version } = splitSpec(spec);
+  return toolCommandText(mode.runner, pkg, version, rest);
+}
+
+/**
+ * Downloads a package into npx's cache without running it, once per package, so its step
+ * starts at once. A failed download is ignored: the step itself will say what failed. With Bun
+ * it does nothing: Bun cannot fill its cache without running the tool.
+ * @param root - The repo.
+ * @param spec - The package and its version.
  * @returns When it is done.
  * @example void download(root, "agent-cloud-kit@1.0.0")
  */
 export function download(root: string, spec: string): Promise<void> {
+  const mode = repoMode(root);
+  // A GitHub spec downloads with npx even in runner mode, until claude-repo-guard is on npm (Part B, Task B1).
+  if (mode.kind === "runner" && !spec.startsWith("github:")) {
+    splitSpec(spec);
+    if (mode.runner === "bun") return Promise.resolve();
+  }
   const known = downloads.get(spec);
   if (known !== undefined) return known;
   const started = run("npx", ["--yes", "--package", spec, "--", "node", "-e", ""], { cwd: root }).then(() => undefined);
@@ -248,16 +350,17 @@ export interface ToolRun {
 }
 
 /**
- * Runs `npx --yes <args>` in the repo: quietly, or with its output on the terminal with
+ * Runs a tool in the repo with its runner: quietly, or with its output on the terminal with
  * `--verbose`. It must not ask anything: the person answered before the steps ran.
  * @param root - The repo.
  * @param args - The package and its arguments.
  * @param env - Variables added to the environment, such as the tool's language.
  * @returns Whether it exited 0, and what it printed.
- * @example await runNpx(root, ["agent-cloud-kit@1.0.0", "init"])
+ * @example await runTool(root, ["agent-cloud-kit@1.0.0", "init"])
  */
-export async function runNpx(root: string, args: string[], env?: NodeJS.ProcessEnv): Promise<ToolRun> {
-  const result = await run("npx", ["--yes", ...args], { cwd: root, inherit: verbose, env });
+export async function runTool(root: string, args: string[], env?: NodeJS.ProcessEnv): Promise<ToolRun> {
+  const command = toolInvocation(root, args);
+  const result = await run(command.file, command.args, { cwd: root, inherit: verbose, env });
   return { ok: result.status === 0, output: `${result.out}${result.err}` };
 }
 
@@ -273,16 +376,17 @@ export function failedOutput(output: string): string {
 }
 
 /**
- * Runs `npx --yes <args>` in the repo and returns what it printed.
+ * Runs a tool in the repo with its runner and returns what it printed.
  * @param root - The repo.
  * @param args - The package and its arguments.
  * @param lookup - True to give up after the lookups' time limit, for a read that only informs.
  * @param env - Variables added to the environment, such as the tool's language.
- * @returns Its stdout, stderr and exit code, or null if npx could not start.
- * @example await captureNpx(root, ["@ramon-sg/issue-flow@0.2.0", "doctor", "--json"])
+ * @returns Its stdout, stderr and exit code, or null if the runner could not start.
+ * @example await captureTool(root, ["@ramon-sg/issue-flow@0.2.0", "doctor", "--json"])
  */
-export async function captureNpx(root: string, args: string[], lookup = false, env?: NodeJS.ProcessEnv): Promise<{ out: string; err: string; status: number | null } | null> {
-  const result = await run("npx", ["--yes", ...args], { cwd: root, env, ...(lookup ? { timeout: LOOKUP_TIMEOUT_MS } : {}) });
+export async function captureTool(root: string, args: string[], lookup = false, env?: NodeJS.ProcessEnv): Promise<{ out: string; err: string; status: number | null } | null> {
+  const command = toolInvocation(root, args);
+  const result = await run(command.file, command.args, { cwd: root, env, ...(lookup ? { timeout: LOOKUP_TIMEOUT_MS } : {}) });
   return result.status === null && result.out === "" ? null : { out: result.out, err: result.err, status: result.status };
 }
 
@@ -300,14 +404,15 @@ export async function runInstall(root: string, manager: string): Promise<ToolRun
 }
 
 /**
- * Runs `npx --yes <args>` in the repo without some variables of the environment, and returns
- * what it printed.
+ * Runs a tool in the repo with its runner, without some variables of the environment, and
+ * returns what it printed.
  * @param root - The repo.
  * @param args - The package and its arguments.
  * @param unset - The variables left out.
  * @returns Its stdout, stderr and exit code.
- * @example await captureNpxWithout(root, ["@ramon-sg/github-rest@0.3.0", "pr", "create"], ["GH_REPO"])
+ * @example await captureToolWithout(root, ["@ramon-sg/github-rest@0.3.0", "pr", "create"], ["GH_REPO"])
  */
-export async function captureNpxWithout(root: string, args: string[], unset: string[]): Promise<{ out: string; err: string; status: number | null }> {
-  return run("npx", ["--yes", ...args], { cwd: root, unset });
+export async function captureToolWithout(root: string, args: string[], unset: string[]): Promise<{ out: string; err: string; status: number | null }> {
+  const command = toolInvocation(root, args);
+  return run(command.file, command.args, { cwd: root, unset });
 }

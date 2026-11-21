@@ -17,7 +17,7 @@ import { KitError } from "./output.js";
 import { FLOW_CONFIG } from "./piece.js";
 import { dependencyVersion, readJson } from "./repo.js";
 import { ui } from "./texts/index.js";
-import { captureNpxWithout, isRelease, npmLatest } from "./tools.js";
+import { captureToolWithout, isRelease, npmLatest } from "./tools.js";
 
 /** github-rest on npm, which opens the PR (REST, never gh's GraphQL). */
 const GITHUB_REST = "@ramon-sg/github-rest";
@@ -216,7 +216,7 @@ async function openPr(root: string, clone: string, branch: string, base: string,
   const bodyFile = join(dir, "body.md");
   writeFileSync(bodyFile, prBody(steps));
   try {
-    const result = await captureNpxWithout(root, [`${GITHUB_REST}@${version}`, "pr", "create", "--head", branch, "--base", base, "--title", TITLE, "--body-file", bodyFile, "--draft"], ["GH_REPO"]);
+    const result = await captureToolWithout(root, [`${GITHUB_REST}@${version}`, "pr", "create", "--head", branch, "--base", base, "--title", TITLE, "--body-file", bodyFile, "--draft"], ["GH_REPO"]);
     const url = result.out.trim().split("\n").at(-1) ?? "";
     return result.status === 0 && url !== "" ? { url } : { error: `${result.err}${result.out}`.trim() || ui.pr.restSilent };
   } finally {

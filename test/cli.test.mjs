@@ -1,6 +1,9 @@
 // Tests of the command line: `apply` installs and updates the pieces, as the bare command
 // did; the bare command still works but says to use `apply`; and every text that tells the
 // person what to run says `apply`.
+import { spawnSync } from "node:child_process";
+import { symlinkSync } from "node:fs";
+import { join } from "node:path";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { installedRepo, makeRepo } from "./helpers.mjs";
@@ -97,4 +100,34 @@ test("--pieces needs a terminal and goes alone", () => {
   assert.equal(bare.status, 2);
   assert.match(bare.err, /córrelo en una terminal/);
   assert.equal(repo.exists(".agents/kitchen.json"), false);
+});
+
+test("a newer agent-kitchen is run with node's npx when node ran this one", () => {
+  const repo = makeRepo();
+  const npm = JSON.stringify({ "agent-kitchen": "9.0.0", "@ramon-sg/issue-flow": "0.2.0", "agent-cloud-kit": "1.1.0" });
+
+  const handed = repo.cli(["--dry-run", "--skip", "skills"], { env: { FAKE_NPM: npm } });
+
+  assert.equal(handed.status, 0, handed.err);
+  assert.deepEqual(repo.programs(), ["npx"]);
+  assert.deepEqual(repo.allCalls(), [["agent-kitchen@9.0.0", "--dry-run", "--skip", "skills"]]);
+});
+
+// Whether the real bun runs here (an asdf shim with no version set fails, so `which` is not enough).
+// Bun looks a program up in its own folder before PATH, so the fake bunx only wins if bun runs
+// from a symlink in the fake bin folder, where no real bunx sits beside it.
+const bun = spawnSync("bun", ["-e", "console.log(process.execPath)"], { encoding: "utf8" });
+const bunSkip = bun.status === 0 ? false : "bun is not usable on this machine (`bun --version` fails)";
+
+test("a newer agent-kitchen is run with bunx --bun when bun ran this one", { skip: bunSkip }, () => {
+  const repo = makeRepo();
+  const npm = JSON.stringify({ "agent-kitchen": "9.0.0", "@ramon-sg/issue-flow": "0.2.0", "agent-cloud-kit": "1.1.0" });
+  const runtime = join(repo.tmp, "bin", "bun");
+  symlinkSync(bun.stdout.trim(), runtime);
+
+  const handed = repo.cli(["--dry-run", "--skip", "skills"], { runtime, env: { FAKE_NPM: npm } });
+
+  assert.equal(handed.status, 0, handed.err);
+  assert.deepEqual(repo.programs(), ["bunx"]);
+  assert.deepEqual(repo.allCalls(), [["agent-kitchen@9.0.0", "--dry-run", "--skip", "skills"]]);
 });

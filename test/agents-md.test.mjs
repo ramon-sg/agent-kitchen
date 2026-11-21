@@ -149,3 +149,50 @@ test("when the flow fails to write package.json, the step writes nothing and say
   assert.equal(repo.exists("AGENTS.md"), false);
   assert.match(r.out, /sin package\.json: no se agregó nada/);
 });
+
+const RUNNER = { runner: "bun", tools: {} };
+// The guard still runs by its GitHub spec, which a runner cannot take until it is on npm. Every
+// piece is decided, or --yes leaves the undecided ones out.
+const NO_GUARD = { pieces: { "skills-manager": false, "issue-flow": false, "agent-cloud-kit": false, "claude-repo-guard": false, skills: false, "agents-md": true } };
+
+test("runner mode: a package.json with only scripts, or only ecosystem tools, gets no agents-md piece and no AGENTS.md", () => {
+  for (const pkg of [{ name: "app", scripts: { test: "true" } }, { name: "app", devDependencies: { "@ramon-sg/issue-flow": "0.2.0", "agent-cloud-kit": "1.1.0" } }]) {
+    const repo = makeRepo();
+    repo.write("package.json", pkg);
+    repo.write(".agents/runner.json", RUNNER);
+    repo.write(".agents/kitchen.json", NO_GUARD);
+
+    const dry = repo.cli(["--dry-run", ...ONLY]);
+    const run = repo.cli(["--yes", ...ONLY]);
+    const doctor = repo.cli(["doctor"]);
+
+    assert.equal(run.status, 0, run.err);
+    assert.doesNotMatch(dry.out, /AGENTS\.md/);
+    assert.equal(repo.exists("AGENTS.md"), false);
+    assert.doesNotMatch(doctor.out, /agents-md/);
+  }
+});
+
+test("runner mode: a repo with a dependency of its own is offered the rule and gets it", () => {
+  const repo = makeRepo();
+  repo.write("package.json", { name: "app", dependencies: { react: "19.0.0" } });
+  repo.write(".agents/runner.json", RUNNER);
+  repo.write(".agents/kitchen.json", NO_GUARD);
+
+  const dry = repo.cli(["--dry-run", ...ONLY]);
+  const run = repo.cli(["--yes", ...ONLY]);
+
+  assert.match(dry.out, /\[x\] Agregar a AGENTS\.md la regla de versiones instaladas/);
+  assert.equal(run.status, 0, run.err);
+  assert.equal(text(repo, "AGENTS.md"), `${RULE}\n`);
+});
+
+test("without runner.json, a package.json with only ecosystem tools still gets the rule, as before", () => {
+  const repo = makeRepo();
+  repo.write("package.json", { name: "app", devDependencies: { "@ramon-sg/issue-flow": "0.2.0" } });
+
+  const r = repo.cli(["--yes", ...ONLY]);
+
+  assert.equal(r.status, 0, r.err);
+  assert.equal(text(repo, "AGENTS.md"), `${RULE}\n`);
+});

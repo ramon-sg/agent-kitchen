@@ -40,8 +40,8 @@ import { issueFlowStatus, NAME as FLOW } from "../pieces/issue-flow.js";
 import { keepOwn, NAME as SKILLS, ownInPick, skillsStatus } from "../pieces/skills.js";
 import { agentsMdStatus, NAME as AGENTS_MD } from "../pieces/agents-md.js";
 import { NAME as SKILLS_MANAGER, skillsManagerStatus } from "../pieces/skills-manager.js";
-import { mainCheckout, packageManager, packageText, readJson } from "../repo.js";
-import { download, failedOutput, runInstall, setVerbose } from "../tools.js";
+import { mainCheckout, ownDependencies, packageManager, packageText, readJson } from "../repo.js";
+import { download, failedOutput, repoMode, runInstall, setVerbose } from "../tools.js";
 import { commitLine, DECISIONS_LINE } from "../commit-texts.js";
 import { type Progress, progressFor } from "../progress.js";
 import { phrases, stepLabel, ui } from "../texts/index.js";
@@ -339,6 +339,7 @@ export async function sync(options: SyncOptions, out: Output): Promise<number> {
   if (options.pieces && (options.yes || options.dryRun)) throw new UsageError(ui.cli.piecesAlone);
   if (options.pieces && !out.interactive) throw new UsageError(ui.cli.piecesNeedsTerminal);
   const root = mainCheckout(options.cwd, "agent-kitchen apply");
+  repoMode(root); // an unusable runner.json stops the run here, before anything is asked or changed
   setVerbose(options.verbose);
   const place = await choosePlace(root, options, out);
   if (place === null) {
@@ -434,7 +435,7 @@ async function applyIn(work: Workplace, options: SyncOptions, out: Output): Prom
   }
   const failed = failedSteps.map(stepLabel);
   if (work.kind === "pr") return openPr(work, commitLabels(chosen.filter((step) => !failedSteps.includes(step)), wrote), failed, progress, out);
-  const installFailed = packageText(root) !== pkgBefore ? !(await install(root, progress, out)) : false;
+  const installFailed = packageText(root) !== pkgBefore && needsInstall(root) ? !(await install(root, progress, out)) : false;
   if (installFailed) failed.push(phrases({ kind: "install-deps", manager: packageManager(root) }).menu);
   show(out, { mood: failed.length === 0 ? "ok" : "error", title: ui.summary(failed), lines: [ui.next(installFailed ? packageManager(root) : null)], ...cloud() }, root);
   return failed.length === 0 ? 0 : 1;
@@ -449,6 +450,16 @@ async function applyIn(work: Workplace, options: SyncOptions, out: Output): Prom
 function cloudNext(root: string, skip: string[]): Pick<Block, "next"> {
   if (skip.includes(CLOUD) || readJson(root, ".claude/cloud.json") === null) return {};
   return { next: { label: ui.cloudNext, command: "npx agent-cloud-kit prepare" } };
+}
+
+/**
+ * Whether the repo's install is worth running: in runner mode the tools run through bunx or
+ * npx, so only dependencies of the repo's own need node_modules. Without runner.json, always.
+ * @param root - The repo.
+ * @returns Whether to install.
+ */
+function needsInstall(root: string): boolean {
+  return repoMode(root).kind !== "runner" || ownDependencies(root).length > 0;
 }
 
 /**
@@ -490,7 +501,7 @@ async function openPr(work: Extract<Workplace, { kind: "pr" }>, done: string[], 
     return 1;
   }
   // A clone starts without node_modules, and the repo's hooks may need them.
-  if (packageText(work.root) !== null && !(await install(work.root, progress, out))) {
+  if (packageText(work.root) !== null && needsInstall(work.root) && !(await install(work.root, progress, out))) {
     work.keep = true;
     end({ mood: "error", title: ui.summary([phrases({ kind: "install-deps", manager: packageManager(work.root) }).menu]), lines: [ui.prNotOpened("install", work.root)] });
     return 1;
