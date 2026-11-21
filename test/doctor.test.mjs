@@ -3,6 +3,8 @@
 // only notes what is missing or behind.
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { mkdirSync, symlinkSync } from "node:fs";
+import { join } from "node:path";
 import { installedRepo, makeRepo } from "./helpers.mjs";
 
 test("doctor passes on a repo with every piece, asking each tool at the repo's version", () => {
@@ -74,3 +76,56 @@ test("doctor notes a piece the repo left out and does not ask its tool", () => {
   assert.match(r.out, /· claude-repo-guard: fuera por decisión del repo/);
   assert.ok(repo.allCalls().every((args) => !args[0].startsWith("github:ramon-sg/claude-repo-guard")));
 });
+
+// A PATH where bunx is missing: the fake npx, node, and the system's own folders.
+const pathWithoutBunx = (repo) => {
+  const dir = join(repo.tmp, "nobun");
+  mkdirSync(dir);
+  symlinkSync(process.execPath, join(dir, "node"));
+  symlinkSync(join(repo.tmp, "bin", "npx"), join(dir, "npx"));
+  return `${dir}:/usr/bin:/bin`;
+};
+
+test("doctor shows one runner line when the repo has runner.json and its bunx runs", () => {
+  const repo = installedRepo();
+  repo.write(".agents/runner.json", { runner: "bun", tools: {} });
+  // The guard still runs by its GitHub spec, which a runner cannot take until it is on npm.
+  repo.write(".agents/kitchen.json", { pieces: { "claude-repo-guard": false } });
+
+  const r = repo.cli(["doctor"]);
+
+  assert.match(r.out, /✓ runner: /);
+  assert.equal(r.out.split("\n").filter((line) => /^\S+ runner:/.test(line)).length, 1);
+});
+
+test("doctor fails the runner line when bunx is not on the PATH", () => {
+  const repo = installedRepo();
+  repo.write(".agents/runner.json", { runner: "bun", tools: {} });
+  // The guard still runs by its GitHub spec, which a runner cannot take until it is on npm.
+  repo.write(".agents/kitchen.json", { pieces: { "claude-repo-guard": false } });
+
+  const r = repo.cli(["doctor"], { env: { PATH: pathWithoutBunx(repo) } });
+
+  assert.match(r.out, /✗ runner: .*bunx/);
+  assert.equal(r.status, 1);
+});
+
+test("doctor has no runner line in a repo without runner.json", () => {
+  const r = installedRepo().cli(["doctor"]);
+
+  assert.doesNotMatch(r.out, /runner:/);
+});
+
+for (const command of ["doctor", "apply"]) {
+  test(`${command} stops with the error block on an invalid runner.json, with no stack`, () => {
+    const repo = installedRepo();
+    repo.write(".agents/runner.json", { runner: "deno" });
+
+    const r = repo.cli(command === "apply" ? ["apply", "--yes"] : [command]);
+
+    assert.equal(r.status, 1);
+    assert.match(r.err, /\.agents\/runner\.json/);
+    assert.doesNotMatch(r.err, /\n\s+at /);
+    assert.doesNotMatch(r.err, /RunnerFileError/);
+  });
+}

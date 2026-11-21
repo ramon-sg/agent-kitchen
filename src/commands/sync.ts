@@ -41,7 +41,7 @@ import { keepOwn, NAME as SKILLS, ownInPick, skillsStatus } from "../pieces/skil
 import { agentsMdStatus, NAME as AGENTS_MD } from "../pieces/agents-md.js";
 import { NAME as SKILLS_MANAGER, skillsManagerStatus } from "../pieces/skills-manager.js";
 import { mainCheckout, packageManager, packageText, readJson } from "../repo.js";
-import { download, failedOutput, runInstall, setVerbose } from "../tools.js";
+import { download, failedOutput, repoMode, runInstall, setVerbose } from "../tools.js";
 import { commitLine, DECISIONS_LINE } from "../commit-texts.js";
 import { type Progress, progressFor } from "../progress.js";
 import { phrases, stepLabel, ui } from "../texts/index.js";
@@ -339,6 +339,7 @@ export async function sync(options: SyncOptions, out: Output): Promise<number> {
   if (options.pieces && (options.yes || options.dryRun)) throw new UsageError(ui.cli.piecesAlone);
   if (options.pieces && !out.interactive) throw new UsageError(ui.cli.piecesNeedsTerminal);
   const root = mainCheckout(options.cwd, "agent-kitchen apply");
+  repoMode(root); // an unusable runner.json stops the run here, before anything is asked or changed
   setVerbose(options.verbose);
   const place = await choosePlace(root, options, out);
   if (place === null) {

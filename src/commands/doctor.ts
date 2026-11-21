@@ -6,8 +6,10 @@
  * changes nothing. A piece the repo does not have, or a newer release, is only noted, and so is
  * a missing rule in AGENTS.md. A piece the repo decided against (`.agents/kitchen.json`) is
  * only noted, and its tool is not asked. It ends in a block with Kuro that says whether some
- * check failed.
+ * check failed. A repo with `.agents/runner.json` also gets one line for its runner; one whose
+ * runner.json cannot be used ends in the error block.
  */
+import { checkRunner } from "@ramon-sg/runner";
 import { colorOn, paint, show } from "../banner.js";
 import { readDecisions } from "../decisions.js";
 import { type Output, warn } from "../output.js";
@@ -19,6 +21,7 @@ import { issueFlowChecks, NAME as FLOW } from "../pieces/issue-flow.js";
 import { NAME as SKILLS, skillsChecks } from "../pieces/skills.js";
 import { skillsManagerChecks } from "../pieces/skills-manager.js";
 import { mainCheckout } from "../repo.js";
+import { repoMode } from "../tools.js";
 import { ui } from "../texts/index.js";
 
 /** The mark of each check's status, and its color on a terminal (green, red, dim). */
@@ -34,12 +37,15 @@ const MARKS: Record<Check["status"], [mark: string, color: number]> = { ok: ["âœ
  */
 export async function doctor(cwd: string, out: Output): Promise<number> {
   const root = mainCheckout(cwd, "agent-kitchen doctor");
+  const runnerMode = repoMode(root).kind === "runner";
   const saved = readDecisions(root);
   for (const warning of saved?.warnings ?? []) warn(out, warning);
   /** The checks of a piece, or a note if the repo left it out. */
   const unless = (name: string, run: () => Promise<Check[]>): Promise<Check[]> =>
     saved?.pieces[name] === false ? Promise.resolve([{ name, status: "info", detail: ui.status.offByRepo }]) : run();
-  const checks = (await Promise.all([skillsManagerChecks(root), unless(FLOW, () => issueFlowChecks(root)), unless(SKILLS, () => skillsChecks(root)), unless(CLOUD, () => cloudChecks(root)), unless(GUARD, () => guardChecks(root)), unless(AGENTS_MD, () => agentsMdChecks(root))])).flat();
+  // The library's "warn" is a note here.
+  const runnerChecks: Check[] = runnerMode ? checkRunner(root).map(({ name, status, detail }) => ({ name, status: status === "warn" ? "info" : status, detail })) : [];
+  const checks = [...runnerChecks, ...(await Promise.all([skillsManagerChecks(root), unless(FLOW, () => issueFlowChecks(root)), unless(SKILLS, () => skillsChecks(root)), unless(CLOUD, () => cloudChecks(root)), unless(GUARD, () => guardChecks(root)), unless(AGENTS_MD, () => agentsMdChecks(root))])).flat()];
   const color = colorOn(out, "stdout");
   for (const check of checks) {
     const [mark, code] = MARKS[check.status];

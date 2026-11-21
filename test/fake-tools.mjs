@@ -32,6 +32,11 @@ import { dirname, join } from "node:path";
 
 const program = process.env.FAKE_AS ?? "npx";
 const logArgs = process.argv.slice(2);
+// `npx --version` and `bunx --version` are how the runner library asks whether a runner works: yes, and unlogged.
+if (logArgs.length === 1 && logArgs[0] === "--version") {
+  process.stdout.write("0.0.0\n");
+  process.exit(0);
+}
 appendFileSync(process.env.FAKE_LOG, `${JSON.stringify({ program, args: logArgs, cwd: process.cwd(), ghRepo: process.env.GH_REPO ?? null, guardLang: process.env.CLAUDE_REPO_GUARD_LANG || null, flowLang: process.env.ISSUE_FLOW_LANG || null })}\n`);
 // From here on bunx is npx: its `--bun` stands where npx's `--yes` does.
 const args = program === "bunx" && logArgs[0] === "--bun" ? ["--yes", ...logArgs.slice(1)] : logArgs;

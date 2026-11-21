@@ -14,7 +14,8 @@
  * reads one line per step. `--verbose` shows it as it comes.
  */
 import { spawn } from "node:child_process";
-import { effectiveRunner, readRunnerConfig, toolCommand, toolCommandText, type Runner } from "@ramon-sg/runner";
+import { effectiveRunner, readRunnerConfig, RunnerFileError, toolCommand, toolCommandText, type Runner } from "@ramon-sg/runner";
+import { KitError } from "./output.js";
 
 /** A release version. */
 const VERSION = /^(\d+)\.(\d+)\.(\d+)$/;
@@ -259,11 +260,17 @@ export type RepoMode = { kind: "runner"; runner: Runner } | { kind: "legacy" };
  * How a repo runs its tools. Every read of `.agents/runner.json` goes through here.
  * @param root - The repo.
  * @returns Runner mode with its runner, or legacy mode if the repo has no runner.json.
- * @throws {RunnerFileError} If runner.json exists but cannot be used.
+ * @throws KitError If runner.json exists but cannot be used (the one place that turns a RunnerFileError into one).
  * @example repoMode(root) // { kind: "runner", runner: "bun" }
  */
 export function repoMode(root: string): RepoMode {
-  const config = readRunnerConfig(root);
+  let config;
+  try {
+    config = readRunnerConfig(root);
+  } catch (error) {
+    if (error instanceof RunnerFileError) throw new KitError(error.message);
+    throw error;
+  }
   return config === null ? { kind: "legacy" } : { kind: "runner", runner: effectiveRunner(config) };
 }
 
