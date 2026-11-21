@@ -19,6 +19,11 @@ export const en: Catalog = {
       doing: "Finishing the move to .agents/runner.json…",
       done: left.length === 0 ? "Move to .agents/runner.json: nothing this run could remove" : `Move to .agents/runner.json finished: no more ${list(left)}`,
     }),
+    "runner-change": ({ from, to, tools }) => ({
+      menu: `Change the runner from ${from} to ${to} and rewrite hooks and shortcuts: ${list(tools)}`,
+      doing: `Changing the runner from ${from} to ${to}…`,
+      done: `Runner changed from ${from} to ${to}: ${list(tools)}`,
+    }),
     "runner-migrate": ({ runner, tools }) => ({
       menu: `Move the tools to .agents/runner.json with the ${runner} runner: ${list(tools)}`,
       doing: `Moving the tools to .agents/runner.json with the ${runner} runner…`,
@@ -165,6 +170,7 @@ export const en: Catalog = {
   },
   nothingChanged: "Nothing was changed.",
   runnerWillWrite: (file, runner) => `New repo: the real run will create ${file} with the ${runner} runner; what follows is already in that mode.`,
+  runnerSame: (runner) => `The repo already uses the ${runner} runner; the runner stays as it is.`,
   runnerLeft: (file) => `${file} is new and uncommitted; include it in your commit.`,
   runnerWritten: (file, runner) => `New repo: wrote ${file} with the ${runner} runner; every tool installs with it.`,
   nothingChangedWarning: "nothing was changed.",
@@ -186,7 +192,7 @@ export const en: Catalog = {
   },
   cli: {
     usage: (pieces) => `Usage:
-  agent-kitchen apply [--yes | --dry-run] [--pr | --here] [--verbose] [--skip <piece>,...]
+  agent-kitchen apply [--yes | --dry-run] [--pr | --here] [--verbose] [--skip <piece>,...] [--runner bun|node]
   agent-kitchen apply --pieces [--pr | --here]
   agent-kitchen doctor
 
@@ -194,7 +200,8 @@ agent-kitchen checks each piece of the repo's agent tooling (${pieces.join(", ")
 shows what the repo has and the latest version of each, and apply offers to install what is
 missing and update what is behind. In a terminal it asks once: do everything suggested, or
 pick the steps and the skills. --yes does what is suggested without asking; without a
-terminal it only shows it. --verbose shows each tool's output.
+terminal it only shows it. --verbose shows each tool's output. --runner bun|node changes the runner
+of the repo's tools (in .agents/runner.json; a repo without it is moved there with that runner).
 --pr works in a freshly fetched temporary copy of origin/<base>, without touching your branch:
 it installs the dependencies, commits, pushes a new branch to origin and opens a draft PR.
 --here works on the current branch and leaves the changes uncommitted; if the steps changed
@@ -210,6 +217,7 @@ and the PR of --pr are always in Spanish.`,
     handOver: (latest, own) => `agent-kitchen: using ${latest}, the latest (this one is ${own}).`,
     noCommand: (words) => `there is no command ${words}.`,
     doctorNoOptions: "doctor takes no options, except --lang.",
+    runnerValue: (value) => `--runner expects bun or node: ${value}`,
     commitGone: "--commit no longer exists: use --pr to open a PR from a copy of origin, or --here to leave the changes uncommitted on the current branch.",
     bare: "agent-kitchen: use 'agent-kitchen apply'; without a subcommand it will stop installing in a major version.",
     lang: (source, value) => `${source} expects es or en: ${value}`,
@@ -294,6 +302,10 @@ and the PR of --pr are always in Spanish.`,
       waiting: (missing) => `legacy mode; to move to .agents/runner.json, npm still lacks ${list(missing)}`,
       notExact: (spec) => `legacy mode; package.json has issue-flow ${spec}, not an exact version: pin it to move to .agents/runner.json`,
       leftOut: (pieces) => `legacy mode; moving to .agents/runner.json takes every tool, and this run leaves out ${list(pieces)}`,
+      changeLeftOut: (pieces) => `changing the runner takes every tool, and this run leaves out ${list(pieces)}`,
+      packageManagerSet: (value) => `packageManager in package.json: ${value}`,
+      packageManagerRemoved: "packageManager removed from package.json",
+      bunVersionUnknown: "could not read bun's version (bun --version); packageManager in package.json stays as it was",
       movedByRunner: " (done by the runner step)",
       written: (file, runner) => `${file} written with the ${runner} runner`,
       cleaned: (names) => `removed from package.json: ${list(names)}`,

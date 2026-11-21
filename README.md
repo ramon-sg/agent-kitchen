@@ -54,6 +54,7 @@ npx agent-kitchen apply --pr                   # en una copia de origin, y abre 
 npx agent-kitchen apply --here                 # en la rama actual, sin commit
 npx agent-kitchen apply --verbose              # muestra la salida de cada herramienta
 npx agent-kitchen apply --skip agent-cloud-kit    # deja fuera una pieza (o varias, con comas)
+npx agent-kitchen apply --runner node             # cambia el ejecutor del repo (bun o node): reescribe runner.json, hooks y atajos de cada herramienta
 npx agent-kitchen apply --pieces               # cambia qué piezas usa el repo (solo en una terminal)
 npx agent-kitchen doctor                       # revisa cada pieza con su propio doctor
 npx agent-kitchen apply --lang en              # la terminal en inglés (o AGENT_KITCHEN_LANG=en)

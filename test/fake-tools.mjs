@@ -23,7 +23,7 @@
 //  - github-rest pr create prints a PR's URL. Each call logs GH_REPO too, the language
 //    variables of claude-repo-guard and issue-flow (null when unset or empty), and whether the
 //    folder had `.agents/runner.json` when it was called.
-//  - npm install and pnpm install write their lockfile, or exit 1 if FAKE_FAIL is "install".
+//  - npm install, pnpm install and bun install write their lockfile, or exit 1 if FAKE_FAIL is "install".
 //  - From the first version that reads `.agents/runner.json` (issue-flow 0.6.0, skills-manager
 //    1.5.0, claude-repo-guard 0.8.0 on npm, agent-cloud-kit 1.0.0), each one writes its entry
 //    there (with the real setTool and writeRunnerConfig of @ramon-sg/runner) instead of
@@ -46,9 +46,9 @@ import { effectiveRunner, readRunnerConfig, setTool, toolCommandText, writeRunne
 
 const program = process.env.FAKE_AS ?? "npx";
 const logArgs = process.argv.slice(2);
-// `npx --version` and `bunx --version` are how the runner library asks whether a runner works: yes, and unlogged.
+// `bun --version` prints FAKE_BUN_VERSION (else 1.2.3). `npx --version` and `bunx --version` are how the runner library asks whether a runner works: yes, and unlogged.
 if (logArgs.length === 1 && logArgs[0] === "--version") {
-  process.stdout.write("0.0.0\n");
+  process.stdout.write(program === "bun" ? `${process.env.FAKE_BUN_VERSION ?? "1.2.3"}\n` : "0.0.0\n");
   process.exit(0);
 }
 appendFileSync(process.env.FAKE_LOG, `${JSON.stringify({ program, args: logArgs, cwd: process.cwd(), ghRepo: process.env.GH_REPO ?? null, guardLang: process.env.CLAUDE_REPO_GUARD_LANG || null, flowLang: process.env.ISSUE_FLOW_LANG || null, runnerFile: existsSync(join(process.cwd(), ".agents", "runner.json")) })}\n`);
@@ -71,12 +71,12 @@ const writeJson = (path, value) => {
   writeFileSync(path, JSON.stringify(value, null, 2));
 };
 
-if ((program === "npm" || program === "pnpm") && args[0] === "install") {
+if ((program === "npm" || program === "pnpm" || program === "bun") && args[0] === "install") {
   if (process.env.FAKE_FAIL && args.join(" ").includes(process.env.FAKE_FAIL)) {
     process.stderr.write(`fake: ${program} install failed\n`);
     process.exit(1);
   }
-  writeFileSync(join(process.cwd(), program === "npm" ? "package-lock.json" : "pnpm-lock.yaml"), "lock\n");
+  writeFileSync(join(process.cwd(), { npm: "package-lock.json", pnpm: "pnpm-lock.yaml", bun: "bun.lock" }[program]), "lock\n");
   process.exit(0);
 }
 

@@ -333,3 +333,14 @@ test("--pr commits runner.json, package.json and the deleted lockfile", () => {
   assert.match(repo.git("log", "-1", "--format=%B", `origin/${branch}`), /- Pasar las herramientas a \.agents\/runner\.json con el ejecutor bun/);
   assert.equal(repo.exists(".agents/runner.json"), false, "the checkout is left as it was");
 });
+
+test("--runner node runs the move with node: runner.json says node and every tool runs with npx", () => {
+  const repo = legacyRepo();
+
+  const r = repo.cli(["apply", "--yes", "--runner", "node"], env());
+
+  assert.equal(r.status, 0, `${r.out}\n${r.err}`);
+  assert.equal(repo.read(".agents/runner.json").runner, "node");
+  assert.deepEqual(repo.read(".agents/runner.json").tools, LATEST);
+  assert.deepEqual([...new Set(toolLog(repo).map((call) => call.program))], ["npx"]);
+});

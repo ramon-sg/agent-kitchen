@@ -26,15 +26,16 @@
  * own pieces offer them again at their latest, and this piece offers a step that finishes the
  * cleanup, which runs after theirs.
  */
+import { spawnSync } from "node:child_process";
 import { existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { checkRunner, chooseRunner, RUNNER_FILE, type Runner, toolCommandText, writeRunnerConfig } from "@ramon-sg/runner";
 import { KitError } from "../output.js";
 import { type Check, type Context, FLOW_PACKAGE, type PieceStatus, SKILLS_MANAGER, SKILLS_MANIFEST, type Step } from "../piece.js";
-import { dependencyEntries, dependencyVersion, ECOSYSTEM_TOOLS, editPackage, isObject, lockfiles, packageManager, readJson, writeJson } from "../repo.js";
+import { dependencyEntries, dependencyVersion, ECOSYSTEM_TOOLS, editPackage, isObject, lockfiles, ownDependencies, packageManager, readJson, writeJson } from "../repo.js";
 import { CLOUD_CONFIG, CLOUD_PACKAGE, GITHUB_REST, GUARD_MANIFEST, GUARD_PACKAGE, RUNNER_MINIMUMS, runnerLatest, toolVersion } from "../runner-mode.js";
 import { ui } from "../texts/index.js";
-import { compareSemver, isExactVersion, npmLatest, raiseTool, repoMode } from "../tools.js";
+import { compareSemver, isExactVersion, npmLatest, raiseTool, repoMode, setRunner } from "../tools.js";
 import { init as initCloud, moveConfig, NAME as CLOUD } from "./cloud.js";
 import { install as installGuard, NAME as GUARD } from "./guard.js";
 import { applyFlow, moveSkills, NAME as FLOW } from "./issue-flow.js";
@@ -117,10 +118,11 @@ const pieceOf = (pkg: string): string => ORDER.find(([each]) => each === pkg)?.[
  * run behind the person's back: the move waits until it can take every tool.
  * @param root - The repo.
  * @param skip - The pieces this run leaves out.
+ * @param forced - The runner `--runner` names, if it did: the move uses it, and a repo in runner mode changes to it.
  * @returns The piece's status, or null for a legacy repo with none of the tools.
  * @example (await runnerStatus(root, []))?.state // "bun, en .agents/runner.json"
  */
-export async function runnerStatus(root: string, skip: string[]): Promise<PieceStatus | null> {
+export async function runnerStatus(root: string, skip: string[], forced?: Runner): Promise<PieceStatus | null> {
   const said = ui.pieces.runner;
   const base = { name: NAME, summary: said.summary };
   const mode = repoMode(root);
@@ -129,7 +131,10 @@ export async function runnerStatus(root: string, skip: string[]): Promise<PieceS
     // and its piece is left out, since nothing in this run will pin it.
     const pieceFor = (pkg: string): string => (pkg === GITHUB_REST ? FLOW : pieceOf(pkg));
     const left = labels(leftovers(root, (pkg) => mode.tools[pkg] !== undefined || !skip.includes(pieceFor(pkg)), false));
-    if (left.length === 0) return { ...base, installed: true, state: said.inRunner(mode.runner), steps: [] };
+    const change = forced === undefined || forced === mode.runner ? null : changeStep(mode.runner, forced, mode.tools, skip);
+    if (left.length === 0 && change?.step === undefined) return { ...base, installed: true, state: `${said.inRunner(mode.runner)}${change?.blocked ?? ""}`, steps: [] };
+    const first = change?.step === undefined ? [] : [change.step];
+    if (left.length === 0) return { ...base, installed: true, state: said.inRunner(mode.runner), steps: first };
     const finish: Step = {
       piece: NAME,
       checked: true,
@@ -141,7 +146,7 @@ export async function runnerStatus(root: string, skip: string[]): Promise<PieceS
         return Promise.resolve(true);
       },
     };
-    return { ...base, installed: true, state: `${said.inRunner(mode.runner)}${said.leftovers}`, steps: [finish] };
+    return { ...base, installed: true, state: `${said.inRunner(mode.runner)}${change?.blocked ?? ""}${said.leftovers}`, steps: [...first, finish] };
   }
   const tools = installedTools(root);
   if (tools.length === 0) return null;
@@ -155,7 +160,7 @@ export async function runnerStatus(root: string, skip: string[]): Promise<PieceS
   const targets = new Map(tools.map((pkg, index) => [pkg, found[index] as string]));
   const missing = tools.filter((pkg) => compareSemver(targets.get(pkg) as string, RUNNER_MINIMUMS[pkg] as string) < 0);
   if (missing.length > 0) return { ...legacy, state: said.waiting(missing.map((pkg) => `${pkg} ${RUNNER_MINIMUMS[pkg] as string}`)) };
-  const chosen = (await chooseRunner({})) ?? { runner: "node" as const, warning: null };
+  const chosen = forced === undefined ? ((await chooseRunner({})) ?? { runner: "node" as const, warning: null }) : { runner: forced, warning: null };
   const step: Step = {
     piece: NAME,
     checked: true,
@@ -165,6 +170,95 @@ export async function runnerStatus(root: string, skip: string[]): Promise<PieceS
     run: (context) => migrate(context, chosen.runner, chosen.warning, targets, restTarget),
   };
   return { ...legacy, state: said.ready, steps: [step] };
+}
+
+/**
+ * The step that changes the runner of a repo in runner mode, or what keeps this run from it.
+ * Like the move, it takes every tool runner.json pins, so a tool whose piece this run leaves out
+ * holds it back.
+ * @param from - The repo's runner.
+ * @param to - The runner `--runner` names.
+ * @param tools - What runner.json pins.
+ * @param skip - The pieces this run leaves out.
+ * @returns The step, or the text for the state when a piece held it back.
+ */
+function changeStep(from: Runner, to: Runner, tools: Record<string, string>, skip: string[]): { step?: Step; blocked?: string } {
+  const pinned = ORDER.filter(([pkg]) => tools[pkg] !== undefined);
+  const leftOut = pinned.map(([, piece]) => piece).filter((piece) => skip.includes(piece));
+  if (leftOut.length > 0) return { blocked: `; ${ui.pieces.runner.changeLeftOut(leftOut)}` };
+  const names = pinned.map(([pkg, piece]) => `${piece} ${tools[pkg] as string}`);
+  return {
+    step: {
+      piece: NAME,
+      checked: true,
+      // Bun cannot fill its cache ahead; npx's cache only helps the Node runner, and the repo still runs with the old one.
+      downloads: [],
+      text: { kind: "runner-change", from, to, tools: names.length === 0 ? [RUNNER_FILE] : names },
+      run: (context) => changeRunner(context, to),
+    },
+  };
+}
+
+/**
+ * Changes the runner of a repo in runner mode: writes it in runner.json, runs the `apply` of each
+ * tool runner.json pins at its version (which rewrites its hooks and shortcuts with the new
+ * runner), and sets packageManager. A tool that fails does not stop the others; nothing is undone.
+ * @param context - Where it runs, in runner mode.
+ * @param to - The runner.
+ * @returns Whether every tool worked.
+ */
+async function changeRunner(context: Context, to: Runner): Promise<boolean> {
+  const said = ui.pieces.runner;
+  if (setRunner(context.root, to)) context.note(said.written(RUNNER_FILE, to));
+  const mode = repoMode(context.root);
+  const tools = mode.kind === "runner" ? mode.tools : {};
+  const runs: Record<string, (version: string) => Promise<boolean>> = {
+    [FLOW_PACKAGE]: (version) => applyFlow(context, version),
+    [GUARD_PACKAGE]: (version) => installGuard(context, version),
+    [CLOUD_PACKAGE]: (version) => initCloud(context, version),
+    [SKILLS_MANAGER]: (version) => updateInRunner(context, version),
+  };
+  let worked = true;
+  for (const [pkg] of ORDER) {
+    const version = tools[pkg];
+    const run = runs[pkg];
+    if (version === undefined || run === undefined) continue;
+    if (!(await attempt(context, () => run(version)))) worked = false;
+  }
+  setPackageManager(context, to);
+  return worked;
+}
+
+/**
+ * The version `bun --version` prints.
+ * @returns The version, or null if bun is not there or prints something else.
+ */
+function bunVersion(): string | null {
+  const result = spawnSync("bun", ["--version"], { encoding: "utf8" });
+  const version = result.status === 0 ? result.stdout.trim() : "";
+  return /^\d+\.\d+\.\d+/.test(version) ? version : null;
+}
+
+/**
+ * Follows a change of runner in the `packageManager` of package.json: `bun@<its version>` for
+ * Bun, none for Node. Only in a repo with no dependencies of its own, where package.json holds
+ * just the shortcuts; with some, `packageManager` is the repo's.
+ * @param context - Where it runs.
+ * @param to - The new runner.
+ */
+function setPackageManager(context: Context, to: Runner): void {
+  const said = ui.pieces.runner;
+  if (ownDependencies(context.root).length > 0 || readJson(context.root, "package.json") === null) return;
+  if (to === "node") {
+    if (editPackage(context.root, (pkg) => delete pkg.packageManager)) context.note(said.packageManagerRemoved);
+    return;
+  }
+  const version = bunVersion();
+  if (version === null) {
+    context.note(said.bunVersionUnknown);
+    return;
+  }
+  if (editPackage(context.root, (pkg) => (pkg.packageManager = `bun@${version}`))) context.note(said.packageManagerSet(`bun@${version}`));
 }
 
 /**

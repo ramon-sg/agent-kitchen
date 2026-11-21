@@ -65,6 +65,8 @@ export interface SyncOptions {
   here: boolean;
   /** Ask which pieces the repo uses, save the answer, then go on as usual. */
   pieces: boolean;
+  /** Force the runner: a new repo starts with it, a legacy repo moves with it, a repo in runner mode changes to it. */
+  runner?: Runner;
 }
 
 /** Every piece, in the order its steps run: the move to runner.json first, so the rest run after it. */
@@ -86,9 +88,10 @@ export function pieceNames(): string[] {
  * the tools it moves offer no step of their own: it takes each one to its latest.
  * @param root - The repo.
  * @param skip - The pieces left out.
+ * @param runnerOption - The runner `--runner` names, if it did.
  * @returns The statuses, in the pieces' order.
  */
-async function statusesOf(root: string, skip: string[]): Promise<PieceStatus[]> {
+async function statusesOf(root: string, skip: string[], runnerOption?: Runner): Promise<PieceStatus[]> {
   const flow = skip.includes(FLOW) ? null : issueFlowStatus(root);
   const flowComing = (flow ?? Promise.resolve(null)).then((status) => status !== null && !status.installed && status.steps.length > 0);
   const skillsManager = skip.includes(SKILLS_MANAGER) ? null : flowComing.then((coming) => skillsManagerStatus(root, !skip.includes(SKILLS), coming));
@@ -96,10 +99,11 @@ async function statusesOf(root: string, skip: string[]): Promise<PieceStatus[]> 
   const skills = skip.includes(SKILLS) ? null : skillsStatus(root, !skip.includes(FLOW));
   const guard = skip.includes(GUARD) ? null : flowComing.then((coming) => guardStatus(root, coming));
   const agentsMd = skip.includes(AGENTS_MD) ? null : flowComing.then((coming) => agentsMdStatus(root, coming));
-  const runner = skip.includes(RUNNER) ? null : runnerStatus(root, skip);
+  const runner = skip.includes(RUNNER) ? null : runnerStatus(root, skip, runnerOption);
   const [moving, ...rest] = await Promise.all([runner, skillsManager, flow, cloud, guard, skills, agentsMd]);
-  // In runner mode, finishing a move cut short runs last, after the tools it left without an entry.
-  const statuses = (moving?.installed === true ? [...rest, moving] : [moving, ...rest]).flatMap((status) => status ?? []);
+  // In runner mode, finishing a move cut short runs last, after the tools it left without an entry; a change of runner runs first, so the other steps already use the new one.
+  const changing = moving?.steps.some((step) => step.text.kind === "runner-change") === true;
+  const statuses = (moving?.installed === true && !changing ? [...rest, moving] : [moving, ...rest]).flatMap((status) => status ?? []);
   if (moving === null || !moving.steps.some((step) => step.text.kind === "runner-migrate")) return statuses;
   for (const status of statuses.filter((each) => MOVED_PIECES.includes(each.name) && each.steps.length > 0)) {
     status.steps = [];
@@ -415,10 +419,11 @@ function isNewRepo(root: string): boolean {
  * @param asks - Whether there is a terminal to ask in.
  * @param dryRun - Whether to write nothing.
  * @param out - Where to write.
+ * @param forced - The runner `--runner` names: it is used as it is, with no look at Bun and no question.
  * @returns The runner, or null if the person chose to leave.
  */
-async function startRunnerMode(root: string, asks: boolean, dryRun: boolean, out: Output): Promise<Runner | null> {
-  const chosen = await chooseRunner(asks ? { ask: askNoBun } : {});
+async function startRunnerMode(root: string, asks: boolean, dryRun: boolean, out: Output, forced?: Runner): Promise<Runner | null> {
+  const chosen = forced === undefined ? await chooseRunner(asks ? { ask: askNoBun } : {}) : { runner: forced, warning: null };
   if (chosen === null) return null;
   if (chosen.warning !== null) warn(out, chosen.warning);
   if (dryRun) {
@@ -456,7 +461,7 @@ async function applyIn(work: Workplace, options: SyncOptions, out: Output): Prom
   // A new repo is written in runner mode before the pieces are looked at, so none of them works in legacy terms.
   let created: Runner | null = null;
   if (isNewRepo(root)) {
-    created = await startRunnerMode(root, asks, options.dryRun, out);
+    created = await startRunnerMode(root, asks, options.dryRun, out, options.runner);
     if (created === null) {
       out.stdout(`${ui.nothingChanged}\n`);
       return 1;
@@ -467,12 +472,14 @@ async function applyIn(work: Workplace, options: SyncOptions, out: Output): Prom
   const dropRunner = (): void => {
     if (wroteRunner) rmSync(join(root, RUNNER_FILE), { force: true });
   };
-  let statuses = await statusesOf(root, skip);
+  const mode = repoMode(root);
+  if (options.runner !== undefined && mode.kind === "runner" && mode.runner === options.runner && created === null) out.stdout(`${ui.runnerSame(options.runner)}\n`);
+  let statuses = await statusesOf(root, skip, options.runner);
   if (saved !== null && !asks && !options.dryRun) {
     const left = undecided(saved).filter((name) => statuses.some((status) => status.name === name && !status.installed));
     if (left.length > 0) {
       skip.push(...left);
-      statuses = await statusesOf(root, skip);
+      statuses = await statusesOf(root, skip, options.runner);
       out.stdout(`${ui.undecided(left)}\n`);
     }
   }
@@ -520,7 +527,7 @@ async function applyIn(work: Workplace, options: SyncOptions, out: Output): Prom
   }
   const failed = failedSteps.map(stepLabel);
   // A runner.json this run wrote, before the steps (a new repo) or in one (the move), is not committed yet.
-  const moved = chosen.some((step) => step.piece === RUNNER && !failedSteps.includes(step));
+  const moved = chosen.some((step) => step.piece === RUNNER && step.text.kind !== "runner-change" && !failedSteps.includes(step));
   const runnerNew = wroteRunner || moved;
   if (work.kind === "pr") return openPr(work, commitLabels(chosen.filter((step) => !failedSteps.includes(step)), wrote, wroteRunner ? created : null), failed, progress, out, moved);
   const installFailed = packageText(root) !== pkgBefore && needsInstall(root, moved) ? !(await install(root, progress, out)) : false;

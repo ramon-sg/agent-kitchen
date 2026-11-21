@@ -2,7 +2,7 @@
 // did; the bare command still works but says to use `apply`; and every text that tells the
 // person what to run says `apply`.
 import { spawnSync } from "node:child_process";
-import { symlinkSync } from "node:fs";
+import { rmSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -123,6 +123,8 @@ test("a newer agent-kitchen is run with bunx --bun when bun ran this one", { ski
   const repo = makeRepo();
   const npm = JSON.stringify({ "agent-kitchen": "9.0.0", "@ramon-sg/issue-flow": "0.2.0", "agent-cloud-kit": "0.9.1" });
   const runtime = join(repo.tmp, "bin", "bun");
+  // The fake bin has a fake `bun` (it answers `--version`); the real one takes its place.
+  rmSync(runtime, { force: true });
   symlinkSync(bun.stdout.trim(), runtime);
 
   const handed = repo.cli(["--dry-run", "--skip", "skills"], { runtime, env: { FAKE_NPM: npm } });

@@ -97,7 +97,7 @@ async function main(argv: string[], out: Output): Promise<number> {
   const { values, positionals } = parseArgs({
     args: argv,
     allowPositionals: true,
-    options: { yes: { type: "boolean" }, "dry-run": { type: "boolean" }, commit: { type: "boolean" }, pr: { type: "boolean" }, here: { type: "boolean" }, verbose: { type: "boolean", short: "v" }, skip: { type: "string" }, pieces: { type: "boolean" }, lang: { type: "string" }, help: { type: "boolean", short: "h" }, version: { type: "boolean" } },
+    options: { yes: { type: "boolean" }, "dry-run": { type: "boolean" }, commit: { type: "boolean" }, pr: { type: "boolean" }, here: { type: "boolean" }, verbose: { type: "boolean", short: "v" }, skip: { type: "string" }, runner: { type: "string" }, pieces: { type: "boolean" }, lang: { type: "string" }, help: { type: "boolean", short: "h" }, version: { type: "boolean" } },
   });
   if (values.help === true) {
     out.stdout(`${usage()}\n`);
@@ -113,13 +113,15 @@ async function main(argv: string[], out: Output): Promise<number> {
   const [command, ...rest] = positionals;
   if (rest.length > 0 || (command !== undefined && command !== "doctor" && command !== "apply")) throw new UsageError(ui.cli.noCommand(positionals.join(" ")));
   if (command === "doctor") {
-    if (values.yes !== undefined || values["dry-run"] !== undefined || values.skip !== undefined || values.verbose !== undefined || values.commit !== undefined || values.pr !== undefined || values.here !== undefined || values.pieces !== undefined) throw new UsageError(ui.cli.doctorNoOptions);
+    if (values.yes !== undefined || values["dry-run"] !== undefined || values.skip !== undefined || values.verbose !== undefined || values.commit !== undefined || values.pr !== undefined || values.here !== undefined || values.pieces !== undefined || values.runner !== undefined) throw new UsageError(ui.cli.doctorNoOptions);
     return doctor(process.cwd(), out);
   }
   if (values.commit !== undefined) throw new UsageError(ui.cli.commitGone);
+  const runner = values.runner === "bun" || values.runner === "node" ? values.runner : undefined;
+  if (values.runner !== undefined && runner === undefined) throw new UsageError(ui.cli.runnerValue(values.runner));
   if (command === undefined) out.stderr(`${ui.cli.bare}\n`);
   const skip = (values.skip ?? "").split(",").map((name) => name.trim()).filter((name) => name !== "");
-  return sync({ cwd: process.cwd(), yes: values.yes ?? false, dryRun: values["dry-run"] ?? false, verbose: values.verbose ?? false, skip, pr: values.pr ?? false, here: values.here ?? false, pieces: values.pieces ?? false }, out);
+  return sync({ cwd: process.cwd(), yes: values.yes ?? false, dryRun: values["dry-run"] ?? false, verbose: values.verbose ?? false, skip, pr: values.pr ?? false, here: values.here ?? false, pieces: values.pieces ?? false, ...(runner === undefined ? {} : { runner }) }, out);
 }
 
 const out = processOutput();

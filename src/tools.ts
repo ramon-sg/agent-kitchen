@@ -340,6 +340,22 @@ export function raiseTool(root: string, pkg: string, version: string): boolean {
 }
 
 /**
+ * Writes the runner of `.agents/runner.json`, keeping its tools and everything else in it.
+ * @param root - The repo, in runner mode.
+ * @param runner - The runner to write.
+ * @returns Whether the file changed.
+ * @throws KitError If the repo has no usable runner.json.
+ * @example setRunner(root, "node") // true
+ */
+export function setRunner(root: string, runner: Runner): boolean {
+  const config = runnerConfig(root);
+  if (config === null) throw new KitError(`${root}/.agents/runner.json is missing`);
+  if (config.runner === runner) return false;
+  writeRunnerConfig(root, { ...config, runner });
+  return true;
+}
+
+/**
  * Splits a spec into its package and its version, at the last `@` that does not start it.
  * @param spec - The package and its version, as `name@x.y.z` or `@scope/name@x.y.z`.
  * @returns The package and the version.

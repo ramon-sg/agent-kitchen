@@ -88,6 +88,8 @@ export interface Catalog {
   runnerWillWrite: (file: string, runner: string) => string;
   /** At the end of a run in the checkout that created the file: it is not committed. */
   runnerLeft: (file: string) => string;
+  /** `--runner` names the runner the repo already has. */
+  runnerSame: (runner: string) => string;
   /** The same, as a warning after the program's name. */
   nothingChangedWarning: string;
   /** With --pr, before the clone: from which branch of origin. */
@@ -118,6 +120,8 @@ export interface Catalog {
     handOver: (latest: string, own: string) => string;
     noCommand: (words: string) => string;
     doctorNoOptions: string;
+    /** `--runner` with a value that is not a runner. */
+    runnerValue: (value: string) => string;
     commitGone: string;
     /** `agent-kitchen` without a subcommand. */
     bare: string;
@@ -205,6 +209,13 @@ export interface Catalog {
       notExact: (spec: string) => string;
       /** A legacy repo that cannot move in this run: the installed tools' pieces it leaves out. */
       leftOut: (pieces: string[]) => string;
+      /** A repo in runner mode that cannot change runner in this run: the installed tools' pieces it leaves out. */
+      changeLeftOut: (pieces: string[]) => string;
+      /** packageManager of the shortcuts' package.json after a change of runner: set, or removed. */
+      packageManagerSet: (value: string) => string;
+      packageManagerRemoved: string;
+      /** `--runner bun` could not read bun's version, so packageManager stays as it is. */
+      bunVersionUnknown: string;
       /** Added to the state of a tool whose steps the move takes over. */
       movedByRunner: string;
       /** The file written, with its runner. */

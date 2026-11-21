@@ -95,7 +95,7 @@ export function makeRepo({ tags = { "ramon-sg/claude-repo-guard": ["0.1.0", "0.2
     git(main, "push", "-q", "origin", "main");
     git(main, "remote", "set-head", "origin", "main");
   }
-  for (const [name, as] of [["npx", ""], ["bunx", "FAKE_AS=bunx "], ["npm", "FAKE_AS=npm "], ["pnpm", "FAKE_AS=pnpm "]]) {
+  for (const [name, as] of [["npx", ""], ["bunx", "FAKE_AS=bunx "], ["bun", "FAKE_AS=bun "], ["npm", "FAKE_AS=npm "], ["pnpm", "FAKE_AS=pnpm "]]) {
     writeFileSync(join(bin, name), `#!/bin/sh\n${as}exec node "${join(HERE, "fake-tools.mjs")}" "$@"\n`);
     chmodSync(join(bin, name), 0o755);
   }
