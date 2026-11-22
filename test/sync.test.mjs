@@ -691,7 +691,19 @@ test("a new repo where the run ends without a step is left with no runner.json",
 
   assert.equal(r.status, 0, r.err);
   assert.equal(repo.exists(".agents/runner.json"), false);
+  assert.equal(repo.exists(".agents"), false);
   assert.deepEqual(repo.calls(), []);
+});
+
+test("a new repo where the run ends without a step keeps an .agents folder it already had", () => {
+  const repo = makeFreshRepo();
+  mkdirSync(join(repo.main, ".agents"));
+
+  const r = repo.cli(["--yes", "--skip", "skills-manager,issue-flow,agent-cloud-kit,claude-repo-guard,skills,agents-md"]);
+
+  assert.equal(r.status, 0, r.err);
+  assert.equal(repo.exists(".agents/runner.json"), false);
+  assert.equal(repo.exists(".agents"), true);
 });
 
 test("a new repo whose steps ran says in the ending that runner.json is new", () => {

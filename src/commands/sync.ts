@@ -29,8 +29,8 @@
  * uses, writes all of them to the file, and then goes on as usual.
  * The run ends in a block with Kuro (banner.ts): how it went and what is left to do.
  */
-import { existsSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readdirSync, rmSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { type Block, show } from "../banner.js";
 import { DECIDABLE, decide, DECISIONS, off, readDecisions, type Saved, undecided, writeDecisions } from "../decisions.js";
 import { behindUpstream, baseBranch, changedPaths, cloneFromOrigin, originUrl, publish, removeClone } from "../pr-clone.js";
@@ -464,6 +464,8 @@ async function applyIn(work: Workplace, options: SyncOptions, out: Output): Prom
   if (out.interactive) out.stdout(`${ui.checking}\n`);
   // A new repo is written in runner mode before the pieces are looked at, so none of them works in legacy terms.
   let created: Runner | null = null;
+  const agentsDir = join(root, dirname(RUNNER_FILE));
+  const hadAgentsDir = existsSync(agentsDir);
   if (isNewRepo(root)) {
     created = await startRunnerMode(root, asks, options.dryRun, out, options.runner);
     if (created === null) {
@@ -474,7 +476,10 @@ async function applyIn(work: Workplace, options: SyncOptions, out: Output): Prom
   // The file this run wrote is only worth keeping if a step runs: a run that ends without one leaves nothing behind.
   const wroteRunner = created !== null && !options.dryRun;
   const dropRunner = (): void => {
-    if (wroteRunner) rmSync(join(root, RUNNER_FILE), { force: true });
+    if (!wroteRunner) return;
+    rmSync(join(root, RUNNER_FILE), { force: true });
+    // The folder goes too when this run made it for the file and nothing else landed in it.
+    if (!hadAgentsDir && readdirSync(agentsDir).length === 0) rmSync(agentsDir, { recursive: true });
   };
   // A new repo was just written with its runner: nothing in it is there to rewrite.
   const forced = created === null ? options.runner : undefined;
