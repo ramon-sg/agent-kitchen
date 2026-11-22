@@ -45,7 +45,7 @@ function legacyRepo({ lock = "package-lock.json", dependencies, origin = false }
 const env = (latest = LATEST) => ({ env: { FAKE_NPM: JSON.stringify(latest) } });
 
 // The tool calls of the last run, as text, with whether runner.json existed when each one ran.
-const toolLog = (repo) => repo.log().filter((call) => ["npx", "bunx"].includes(call.program) && call.args[1] !== "--package").map((call) => ({ program: call.program, text: call.args.slice(1).join(" "), runnerFile: call.runnerFile }));
+const toolLog = (repo) => repo.log().filter((call) => ["npx", "bun x"].includes(call.program) && call.args[1] !== "--package").map((call) => ({ program: call.program, text: call.args.slice(1).join(" "), runnerFile: call.runnerFile }));
 
 test("a legacy repo whose tools all have a release that reads runner.json is offered the move, and --dry-run writes nothing", () => {
   const repo = legacyRepo();
@@ -83,7 +83,7 @@ test("apply --yes moves a legacy repo to runner.json: five versions there, no ec
   assert.equal(repo.exists("node_modules"), false);
   assert.deepEqual(repo.npmCalls().filter((args) => args[0] === "install"), []);
   const hooks = repo.read(".claude/settings.json").hooks.SessionStart.flatMap((group) => group.hooks.map((hook) => hook.command));
-  assert.ok(hooks.includes("bunx --bun @ramon-sg/skills-manager@1.5.1 session-notice"), hooks.join("\n"));
+  assert.ok(hooks.includes("bun x --bun @ramon-sg/skills-manager@1.5.1 session-notice"), hooks.join("\n"));
   assert.match(r.out, /\.agents\/runner\.json/);
 });
 
@@ -155,7 +155,7 @@ test("a tool left out of the run (--skip, or false in kitchen.json) holds the mo
   }
 });
 
-test("the move writes runner.json before any tool runs, then runs issue-flow, the guard, agent-cloud-kit and skills-manager, in that order, with bunx", () => {
+test("the move writes runner.json before any tool runs, then runs issue-flow, the guard, agent-cloud-kit and skills-manager, in that order, with bun x", () => {
   const repo = legacyRepo();
 
   const r = repo.cli(["apply", "--yes"], env());
@@ -164,7 +164,7 @@ test("the move writes runner.json before any tool runs, then runs issue-flow, th
   const calls = toolLog(repo);
   const first = calls.findIndex((call) => call.runnerFile);
   assert.ok(first >= 0, JSON.stringify(calls));
-  assert.ok(calls.slice(first).every((call) => call.runnerFile && call.program === "bunx"), JSON.stringify(calls));
+  assert.ok(calls.slice(first).every((call) => call.runnerFile && call.program === "bun x"), JSON.stringify(calls));
   assert.equal(calls[first].text, "@ramon-sg/issue-flow@0.6.0 apply --yes --json");
   const order = ["@ramon-sg/issue-flow@0.6.0 apply --yes --json", "@ramon-sg/claude-repo-guard@0.8.0 apply --yes", "agent-cloud-kit@1.0.0 init", "@ramon-sg/skills-manager@1.5.1 install"].map((text) => calls.findIndex((call) => call.text === text));
   assert.ok(order.every((index) => index >= first), `${order} in ${JSON.stringify(calls)}`);
@@ -203,7 +203,7 @@ function assertMoved(repo) {
   assert.equal(repo.exists("package-lock.json"), false);
   assert.equal(repo.exists("node_modules"), false);
   const hooks = repo.read(".claude/settings.json").hooks.SessionStart.flatMap((group) => group.hooks.map((hook) => hook.command));
-  assert.ok(hooks.includes("bunx --bun @ramon-sg/skills-manager@1.5.1 session-notice"), hooks.join("\n"));
+  assert.ok(hooks.includes("bun x --bun @ramon-sg/skills-manager@1.5.1 session-notice"), hooks.join("\n"));
 }
 
 test("a move cut short by a failure is finished by the next apply: the failed tools run again, then the cleanup", () => {

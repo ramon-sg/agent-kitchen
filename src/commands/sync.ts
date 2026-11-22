@@ -572,7 +572,7 @@ function cloudNext(root: string, skip: string[]): Pick<Block, "next"> {
 }
 
 /**
- * Whether the repo's install is worth running: in runner mode the tools run through bunx or
+ * Whether the repo's install is worth running: in runner mode the tools run through `bun x` or
  * npx, so only dependencies of the repo's own need node_modules. Without runner.json, always.
  * After the `runner` piece's step (the move, or its end), any dependency entry package.json
  * keeps counts, an ecosystem tool used as a library included: that step kept its lockfile.

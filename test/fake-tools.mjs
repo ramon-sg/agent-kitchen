@@ -1,4 +1,4 @@
-// Fake npx, bunx and npm for the tests: they log each call (program, arguments, folder) to
+// Fake npx, bun and npm for the tests: they log each call (program, arguments, folder) to
 // FAKE_LOG and do the little of each tool that agent-kitchen reads back afterwards.
 //  - npm view <pkg> version prints FAKE_NPM's entry for <pkg> (a JSON map), or fails; npm
 //    view <pkg>@<v> dependencies --json prints FAKE_NPM_DEPS's entry for <pkg>@<v>, or fails.
@@ -36,7 +36,7 @@
 //    (seeded from cloud.json). The guard's apply sets its own (lowering too) in a repo with
 //    runner.json, stays in legacy mode in one with its manifest and no runner.json, and makes
 //    runner.json on a new install; it writes its manifest and its shortcuts.
-// bunx takes a leading `--bun` where npx takes `--yes`, and goes on as npx.
+// `bun x` (logged as the program "bun x") takes a leading `--bun` where npx takes `--yes`, and goes on as npx.
 // Any npx call whose arguments contain FAKE_FAIL exits 1, saying so on stderr. A download
 // ahead of a step (`npx --package <spec>`) does nothing. Every other npx call prints
 // FAKE_SAY, if set, as a tool's own output would be.
@@ -44,16 +44,18 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } fr
 import { dirname, join } from "node:path";
 import { effectiveRunner, readRunnerConfig, setTool, toolCommandText, writeRunnerConfig, writeScripts } from "@ramon-sg/runner";
 
-const program = process.env.FAKE_AS ?? "npx";
-const logArgs = process.argv.slice(2);
-// `bun --version` prints FAKE_BUN_VERSION (else 1.2.3). `npx --version` and `bunx --version` are how the runner library asks whether a runner works: yes, and unlogged.
+// `bun x …` is the runner's call, logged as the program "bun x"; `bun install` and `bun --version` stay "bun".
+const runs = process.env.FAKE_AS === "bun" && process.argv[2] === "x";
+const program = runs ? "bun x" : (process.env.FAKE_AS ?? "npx");
+const logArgs = process.argv.slice(runs ? 3 : 2);
+// `bun --version` prints FAKE_BUN_VERSION (else 1.2.3), which is also how the runner library asks whether Bun works; `npx --version` is how it asks for npx: yes, and unlogged.
 if (logArgs.length === 1 && logArgs[0] === "--version") {
   process.stdout.write(program === "bun" ? `${process.env.FAKE_BUN_VERSION ?? "1.2.3"}\n` : "0.0.0\n");
   process.exit(0);
 }
 appendFileSync(process.env.FAKE_LOG, `${JSON.stringify({ program, args: logArgs, cwd: process.cwd(), ghRepo: process.env.GH_REPO ?? null, guardLang: process.env.CLAUDE_REPO_GUARD_LANG || null, flowLang: process.env.ISSUE_FLOW_LANG || null, projectDir: process.env.CLAUDE_PROJECT_DIR ?? null, runnerFile: existsSync(join(process.cwd(), ".agents", "runner.json")) })}\n`);
-// From here on bunx is npx: its `--bun` stands where npx's `--yes` does.
-const args = program === "bunx" && logArgs[0] === "--bun" ? ["--yes", ...logArgs.slice(1)] : logArgs;
+// From here on `bun x` is npx: its `--bun` stands where npx's `--yes` does.
+const args = program === "bun x" && logArgs[0] === "--bun" ? ["--yes", ...logArgs.slice(1)] : logArgs;
 
 const readJson = (path) => (existsSync(path) ? JSON.parse(readFileSync(path, "utf8")) : null);
 // Whether a version is at or above another, both as x.y.z.

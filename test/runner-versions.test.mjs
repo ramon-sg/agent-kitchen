@@ -74,13 +74,13 @@ test("in runner mode the table shows each piece's version from runner.json, and 
   assert.doesNotMatch(git.read(), /ls-remote .*claude-repo-guard/);
 });
 
-test("in runner mode apply --yes updates each piece with bunx --bun at its latest, and runner.json follows", () => {
+test("in runner mode apply --yes updates each piece with bun x --bun at its latest, and runner.json follows", () => {
   const repo = runnerRepo();
 
   const r = repo.cli(["apply", "--yes"], { env: { FAKE_NPM: LATEST } });
 
   assert.equal(r.status, 0, r.err);
-  assert.deepEqual([...new Set(repo.programs())], ["bunx"]);
+  assert.deepEqual([...new Set(repo.programs())], ["bun x"]);
   const calls = repo.calls().map((args) => args.join(" "));
   for (const call of ["@ramon-sg/issue-flow@0.6.1 apply --yes --json", "agent-cloud-kit@1.0.1 init", "@ramon-sg/claude-repo-guard@0.8.1 apply --yes", "@ramon-sg/skills-manager@1.5.1 install"]) assert.ok(calls.includes(call), `${call} in ${calls.join("\n")}`);
   assert.ok(calls.every((call) => !call.startsWith("github:")), calls.join("\n"));
@@ -92,7 +92,7 @@ test("in runner mode apply --yes updates each piece with bunx --bun at its lates
     "agent-cloud-kit": "1.0.1",
   });
   assert.deepEqual(repo.read(".claude/cloud.json"), {}, "agent-kitchen does not write cloud.json's version in runner mode");
-  assert.match(r.out, /bunx --bun agent-cloud-kit@1\.0\.1 prepare/);
+  assert.match(r.out, /bun x --bun agent-cloud-kit@1\.0\.1 prepare/);
 });
 
 test("in legacy mode issue-flow goes only as far as the newest version below 0.6.0", () => {
@@ -133,8 +133,50 @@ test("in runner mode updating skills-manager pins its session-notice hook to the
   const r = repo.cli(["apply", "--yes", "--skip", "issue-flow,agent-cloud-kit,claude-repo-guard,skills,agents-md"], { env: { FAKE_NPM: LATEST } });
 
   assert.equal(r.status, 0, r.err);
-  assert.deepEqual(sessionStart(repo), ["bunx --bun @ramon-sg/skills-manager@1.5.1 session-notice", "echo mine"]);
+  assert.deepEqual(sessionStart(repo), ["bun x --bun @ramon-sg/skills-manager@1.5.1 session-notice", "echo mine"]);
   assert.equal(repo.read(".agents/runner.json").tools["@ramon-sg/skills-manager"], "1.5.1");
+});
+
+// The session-notice hook as versions before runner 1.0.1 wrote it, with `bunx`, which asdf's
+// Bun ships as a script that splits arguments with spaces.
+const oldHook = (version) => ({ hooks: { SessionStart: [{ hooks: [{ type: "command", command: `bunx --bun @ramon-sg/skills-manager@${version} session-notice` }] }, { hooks: [{ type: "command", command: "echo mine" }] }] } });
+const SKIP_ALL_BUT_SKILLS_MANAGER = ["--skip", "issue-flow,agent-cloud-kit,claude-repo-guard,skills,agents-md"];
+
+test("updating skills-manager rewrites an old bunx session-notice hook to bun x, without a second one", () => {
+  const repo = runnerRepo();
+  repo.write(".claude/settings.json", oldHook("1.5.0"));
+
+  const r = repo.cli(["apply", "--yes", ...SKIP_ALL_BUT_SKILLS_MANAGER], { env: { FAKE_NPM: LATEST } });
+
+  assert.equal(r.status, 0, r.err);
+  assert.deepEqual(sessionStart(repo), ["bun x --bun @ramon-sg/skills-manager@1.5.1 session-notice", "echo mine"]);
+});
+
+test("a bunx session-notice hook at runner.json's version is offered and rewritten to bun x", () => {
+  const repo = runnerRepo({ ...MINIMUMS, "@ramon-sg/skills-manager": "1.5.1" });
+  repo.write(".claude/settings.json", oldHook("1.5.1"));
+
+  const dry = repo.cli(["apply", "--dry-run", ...SKIP_ALL_BUT_SKILLS_MANAGER], { env: { FAKE_NPM: LATEST } });
+  const r = repo.cli(["apply", "--yes", ...SKIP_ALL_BUT_SKILLS_MANAGER], { env: { FAKE_NPM: LATEST } });
+  const again = repo.cli(["apply", "--dry-run", ...SKIP_ALL_BUT_SKILLS_MANAGER], { env: { FAKE_NPM: LATEST } });
+
+  assert.equal(dry.status, 0, dry.err);
+  assert.match(dry.out, /el hook session-notice/);
+  assert.equal(r.status, 0, r.err);
+  assert.deepEqual(sessionStart(repo), ["bun x --bun @ramon-sg/skills-manager@1.5.1 session-notice", "echo mine"]);
+  assert.doesNotMatch(again.out, /el hook session-notice/);
+});
+
+test("doctor notes a session-notice hook that is not runner.json's command, and apply fixes it", () => {
+  const repo = runnerRepo({ ...MINIMUMS, "@ramon-sg/skills-manager": "1.5.1" });
+  repo.write(".claude/settings.json", oldHook("1.5.1"));
+
+  const before = repo.cli(["doctor"], { env: { FAKE_NPM: LATEST } });
+  repo.cli(["apply", "--yes", ...SKIP_ALL_BUT_SKILLS_MANAGER], { env: { FAKE_NPM: LATEST } });
+  const after = repo.cli(["doctor"], { env: { FAKE_NPM: LATEST } });
+
+  assert.match(before.out, /· skills-manager: .*bunx --bun @ramon-sg\/skills-manager@1\.5\.1 session-notice.*bun x --bun @ramon-sg\/skills-manager@1\.5\.1 session-notice/);
+  assert.doesNotMatch(after.out, /session-notice/);
 });
 
 test("in runner mode skills-manager writes its session-notice hook when the repo has none", () => {
@@ -181,7 +223,7 @@ test("a runner takes only a spec with an exact version", () => {
   assert.throws(() => toolText(repo.main, ["github:ramon-sg/claude-repo-guard#v0.8.0", "apply"]), /with a version/);
   assert.throws(() => toolText(repo.main, ["@ramon-sg/skills-manager@1", "install"]), /with a version/);
   assert.throws(() => toolText(repo.main, ["@ramon-sg/skills-manager@^1.5.0", "install"]), /with a version/);
-  assert.equal(toolText(repo.main, ["agent-cloud-kit@1.0.0-rc.1", "init"]), "bunx --bun agent-cloud-kit@1.0.0-rc.1 init");
+  assert.equal(toolText(repo.main, ["agent-cloud-kit@1.0.0-rc.1", "init"]), "bun x --bun agent-cloud-kit@1.0.0-rc.1 init");
 });
 
 test("in runner mode, a PR that fails to open says how to open it with the runner and runner.json's github-rest", () => {
@@ -195,7 +237,7 @@ test("in runner mode, a PR that fails to open says how to open it with the runne
 
   assert.equal(r.status, 1);
   assert.ok(repo.calls().some((args) => args.slice(0, 3).join(" ") === "@ramon-sg/github-rest@0.7.0 pr create"));
-  assert.match(r.out, /bunx --bun @ramon-sg\/github-rest@0\.7\.0 pr create --head chore\/agent-kitchen-apply-\S+ --base main --title 'chore: agent-kitchen apply' --body \.\.\. --draft/);
+  assert.match(r.out, /bun x --bun @ramon-sg\/github-rest@0\.7\.0 pr create --head chore\/agent-kitchen-apply-\S+ --base main --title 'chore: agent-kitchen apply' --body \.\.\. --draft/);
 });
 
 // The registry with skills-manager 1.5.1 as latest, and 1.4.3 the newest below 1.5.0.

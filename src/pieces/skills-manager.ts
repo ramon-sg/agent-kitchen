@@ -90,7 +90,7 @@ export function sessionNoticeCommands(root: string): string[] {
  * @param root - The repo.
  * @param command - The hook's command.
  * @returns Whether the settings changed.
- * @example pinSessionNotice(root, "bunx --bun @ramon-sg/skills-manager@1.5.1 session-notice") // true
+ * @example pinSessionNotice(root, "bun x --bun @ramon-sg/skills-manager@1.5.1 session-notice") // true
  */
 export function pinSessionNotice(root: string, command: string): boolean {
   const settings = readJson(root, SETTINGS) ?? {};
@@ -221,6 +221,20 @@ export async function skillsManagerStatus(root: string, withSkills: boolean, flo
 }
 
 /**
+ * In runner mode, the `session-notice` hooks that are not the command runner.json gives, such as
+ * one an older agent-kitchen wrote with `bunx`: a note, since `apply` re-pins them.
+ * @param root - The repo, in runner mode.
+ * @param version - runner.json's skills-manager.
+ * @returns A note per hook that differs.
+ */
+function hookChecks(root: string, version: string): Check[] {
+  const mode = repoMode(root);
+  if (mode.kind !== "runner") return [];
+  const command = toolCommandText(mode.runner, SKILLS_MANAGER, version, ["session-notice"]);
+  return sessionNoticeCommands(root).filter((hook) => hook !== command).map((hook) => ({ name: NAME, status: "info" as const, detail: ui.pieces.skillsManager.checkHook(hook, command) }));
+}
+
+/**
  * Whether the version of skills-manager the repo runs is the one agent-kitchen needs.
  * @param root - The repo.
  * @returns The checks; none where the piece does not apply.
@@ -233,9 +247,10 @@ export function skillsManagerChecks(root: string): Check[] {
     const version = toolVersion(root, SKILLS_MANAGER);
     const minimum = RUNNER_MINIMUMS[SKILLS_MANAGER] as string;
     if (version === null) return [{ name: NAME, status: "info", detail: said.checkMissingInRunner }];
-    return compareSemver(version, minimum) < 0
-      ? [{ name: NAME, status: "fail", detail: said.checkBelow(version, minimum) }]
-      : [{ name: NAME, status: "ok", detail: said.checkOk(version, minimum) }];
+    const pinnedCheck: Check = compareSemver(version, minimum) < 0
+      ? { name: NAME, status: "fail", detail: said.checkBelow(version, minimum) }
+      : { name: NAME, status: "ok", detail: said.checkOk(version, minimum) };
+    return [pinnedCheck, ...hookChecks(root, version)];
   }
   if (!applies(root, false, false)) return [];
   const now = pinned(root);
