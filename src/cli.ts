@@ -52,7 +52,7 @@ function startLookups(): void {
 }
 
 /**
- * Runs the latest agent-kitchen with the same arguments and the runtime this one runs on (bunx under Bun, npx under Node), if npm has one newer than this.
+ * Runs the latest agent-kitchen with the same arguments and the runtime this one runs on (`bun x` under Bun, npx under Node), if npm has one newer than this.
  * @param argv - The arguments.
  * @returns Its exit code, or null if this one is the latest or npm cannot tell.
  */

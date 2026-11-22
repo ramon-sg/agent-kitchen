@@ -258,6 +258,7 @@ export interface Catalog {
       missingInRunner: string;
       /** The same, in doctor. */
       checkMissingInRunner: string;
+      checkHook: (hook: string, command: string) => string;
       /** The session-notice hook pinned to a version. */
       hookPinned: (command: string) => string;
       checkBelow: (version: string, minimum: string) => string;

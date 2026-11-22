@@ -5,15 +5,15 @@
 Un solo comando para instalar, actualizar y revisar lo que un repo usa para trabajar con agentes: el flujo de issues con sus skills, las skills generales, las sesiones de Claude en la nube y las barandas de seguridad.
 
 ```sh
-bunx agent-kitchen apply    # muestra qué hay, qué falta y qué está atrasado, y pregunta
-bunx agent-kitchen doctor   # revisa que todo funcione, sin cambiar nada
+bun x agent-kitchen apply   # muestra qué hay, qué falta y qué está atrasado, y pregunta
+bun x agent-kitchen doctor  # revisa que todo funcione, sin cambiar nada
 ```
 
 Con Node es `npx agent-kitchen apply`. Las herramientas corren con el ejecutor del repo (Bun por defecto) y las versiones exactas de `.agents/runner.json`, sin `node_modules` para ellas: ver [El ejecutor y `.agents/runner.json`](#el-ejecutor-y-agentsrunnerjson).
 
 Qué hace cada herramienta y cada skill, y dónde están: [docs/README.md](docs/README.md) para personas y [docs/agent-guide.md](docs/agent-guide.md) para agentes.
 
-Al arrancar revisa si npm tiene una versión más nueva de sí mismo. Si la hay, corre esa con los mismos argumentos y con el mismo ejecutor con el que se lo llamó (`bunx` si corre en Bun, `npx` si corre en Node), así que nunca usa una copia vieja de su caché.
+Al arrancar revisa si npm tiene una versión más nueva de sí mismo. Si la hay, corre esa con los mismos argumentos y con el mismo ejecutor con el que se lo llamó (`bun x` si corre en Bun, `npx` si corre en Node), así que nunca usa una copia vieja de su caché.
 
 ## En simple
 
@@ -67,7 +67,7 @@ Un repo en **modo runner** corre cada herramienta con el ejecutor y la versión 
 
 - **`runner`** es `"bun"` o `"node"`; sin él, Bun. **`tools`** tiene la versión exacta de cada herramienta, con su nombre de paquete (siempre con el scope).
 - **Quién escribe cada entrada:** la herramienta misma, cuando se instala o se actualiza (`issue-flow` la suya y la de `github-rest`, `skills-manager`, `claude-repo-guard` y `agent-cloud-kit` cada una la suya). `agent-kitchen` crea el archivo con el `runner`, y al migrar fija la entrada de una herramienta si ella no lo hizo. Commitea el archivo: es lo que hace que el repo, sus worktrees y la nube corran las mismas versiones.
-- **Comandos:** con Bun, `bunx --bun <paquete>@<versión> …`; con Node, `npx --yes <paquete>@<versión> …`. Los hooks y los atajos de `package.json` (`issue:start`, `claude:auto`…) se escriben así, con la versión fija. Las herramientas no pasan por `node_modules`: solo se instala lo que el repo usa por su cuenta.
+- **Comandos:** con Bun, `bun x --bun <paquete>@<versión> …`; con Node, `npx --yes <paquete>@<versión> …`. Los hooks y los atajos de `package.json` (`issue:start`, `claude:auto`…) se escriben así, con la versión fija. Las herramientas no pasan por `node_modules`: solo se instala lo que el repo usa por su cuenta.
 - **Modo viejo:** un repo sin `.agents/runner.json` sigue como siempre: las versiones en `package.json`, `.claude/cloud.json` y el manifest del guard, y todo con `npx`. Para que un repo nunca quede a medio migrar, en modo viejo solo se ofrecen versiones por debajo de la primera que lee `runner.json`: `issue-flow` 0.6.0, `skills-manager` 1.5.0, `claude-repo-guard` 0.8.0 y `agent-cloud-kit` 1.0.0.
 - **Repos nuevos** (sin `runner.json` ni ninguna herramienta instalada) nacen con él. Usa Bun si está instalado; si no, en una terminal pregunta, y sin terminal usa Node y avisa. Con `--dry-run` no escribe nada. `--runner` lo fija sin preguntar.
 - **Versiones:** se consultan en el registro de npm: `AGENT_KITCHEN_REGISTRY`, si no `npm_config_registry`, si no `registry.npmjs.org`. Límite conocido: detrás de un proxy HTTP(S) el `fetch` de Node no lo usa, las consultas no devuelven nada y no se ofrece actualizar (no falla).
@@ -97,10 +97,10 @@ Si la migración se corta, el repo queda en modo runner con las herramientas que
 
 ## Uso
 
-Cada ejemplo funciona con `bunx` o con `npx`, según el ejecutor del repo.
+Cada ejemplo funciona con `bun x` o con `npx`, según el ejecutor del repo.
 
 ```sh
-bunx agent-kitchen apply                       # (con Node: npx) pregunta, en una terminal (Enter: todo lo sugerido)
+bun x agent-kitchen apply                      # (con Node: npx) pregunta, en una terminal (Enter: todo lo sugerido)
 npx agent-kitchen apply --dry-run              # solo muestra qué haría
 npx agent-kitchen apply --yes                  # hace lo sugerido sin preguntar
 npx agent-kitchen apply --pr                   # en una copia de origin, y abre un PR en draft
@@ -128,7 +128,7 @@ npx agent-kitchen apply --lang en              # la terminal en inglés (o AGENT
 
 **`--here`** trabaja en la rama actual, en tus archivos, como `ng update` o `copier update`. Avisa si ya tienes cambios sin commit o si tu rama está atrás de origin según el último fetch. Si los pasos cambiaron `package.json`, corre el `install` de tu gestor de paquetes al final (en modo runner, solo si quedan dependencias en `package.json`). Te queda revisar el diff y hacer commit.
 
-**`doctor`** corre el doctor de cada herramienta en la versión del repo (en modo runner, con el ejecutor del repo). En modo runner también revisa que `.agents/runner.json` sea válido, que el ejecutor esté instalado (`bunx` o `npx`) y falla si una herramienta instalada no está fijada en él; cada herramienta pasa además su propio doctor, que revisa sus hooks y atajos. Un `runner.json` que no se puede usar corta el comando con un error. En modo viejo no agrega nada. Las herramientas son: `issue-flow doctor --json`, `skills-manager check` y `claude-repo-guard doctor --json`. Además revisa que `skills-manager` esté al menos en 1.2.0, que las skills del flujo estén en la tag de su CLI, qué labels del flujo le faltan a GitHub (con `·`), que la versión de `agent-cloud-kit` sea exacta (en `.agents/runner.json`; en modo viejo, `.claude/cloud.json`) y, en macOS, `weakerNetworkIsolation`. En un repo con `package.json`, también la línea de `AGENTS.md` y, si hay `CLAUDE.md`, su `@AGENTS.md`. Lo que no está instalado o tiene una versión nueva solo se anota con `·`. Sale con 1 si algo falla (`✗`).
+**`doctor`** corre el doctor de cada herramienta en la versión del repo (en modo runner, con el ejecutor del repo). En modo runner también revisa que `.agents/runner.json` sea válido, que el ejecutor esté instalado (`bun` o `npx`) y falla si una herramienta instalada no está fijada en él; cada herramienta pasa además su propio doctor, que revisa sus hooks y atajos. Un `runner.json` que no se puede usar corta el comando con un error. En modo viejo no agrega nada. Las herramientas son: `issue-flow doctor --json`, `skills-manager check` y `claude-repo-guard doctor --json`. Además revisa que `skills-manager` esté al menos en 1.2.0 (en modo runner, anota con `·` un hook `session-notice` que no sea el comando de `runner.json`, como uno viejo con `bunx`, y `apply` lo reescribe), que las skills del flujo estén en la tag de su CLI, qué labels del flujo le faltan a GitHub (con `·`), que la versión de `agent-cloud-kit` sea exacta (en `.agents/runner.json`; en modo viejo, `.claude/cloud.json`) y, en macOS, `weakerNetworkIsolation`. En un repo con `package.json`, también la línea de `AGENTS.md` y, si hay `CLAUDE.md`, su `@AGENTS.md`. Lo que no está instalado o tiene una versión nueva solo se anota con `·`. Sale con 1 si algo falla (`✗`).
 
 **Idioma.** La terminal habla español por defecto. `--lang en`, o la variable `AGENT_KITCHEN_LANG=en`, la pasa a inglés; `--lang` gana sobre la variable, y `LANG` no se mira. agent-kitchen pasa ese idioma a claude-repo-guard (`CLAUDE_REPO_GUARD_LANG`) y a issue-flow (`ISSUE_FLOW_LANG`) cuando los instala o actualiza, así que lo que muestran al fallar sale en el mismo idioma. También lo reciben los `doctor` de las dos y la lectura de los labels de issue-flow, así que un valor que ellas no aceptan en la shell no las hace fallar; cuando agent-kitchen lee el texto del doctor de issue-flow para decidir si reparar, le pide inglés. Lo que queda en el repo no cambia de idioma: el commit y el PR de `--pr`, la línea de `AGENTS.md` y las opciones de `claude-repo-guard`. Los textos están en `src/texts/es.ts` y `src/texts/en.ts`, con el mismo tipo; un test revisa que tengan las mismas claves.
 
@@ -145,7 +145,7 @@ npm install
 npm test        # compila y corre los tests
 ```
 
-Los tests corren el CLI compilado sobre repos reales. `npx`, `bunx` y `npm` son falsos (`test/fake-tools.mjs`) y registran cada llamada. Las tags de GitHub salen de repos locales a los que git llega reescribiendo `https://github.com/`, así que `git ls-remote` es el real. Los menús no se prueban renderizados: se prueban `menuOptions` y `skillOptions`, y se corrieron en una terminal con `expect`. Con `@clack/prompts` 1.8.1, una ruedita mostrada antes de una pregunta deja a la segunda pregunta sin teclado; por eso la revisión inicial es una línea de texto.
+Los tests corren el CLI compilado sobre repos reales. `npx`, `bun` y `npm` son falsos (`test/fake-tools.mjs`) y registran cada llamada. Las tags de GitHub salen de repos locales a los que git llega reescribiendo `https://github.com/`, así que `git ls-remote` es el real. Los menús no se prueban renderizados: se prueban `menuOptions` y `skillOptions`, y se corrieron en una terminal con `expect`. Con `@clack/prompts` 1.8.1, una ruedita mostrada antes de una pregunta deja a la segunda pregunta sin teclado; por eso la revisión inicial es una línea de texto.
 
 ## Publicar una versión
 

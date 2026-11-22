@@ -1,4 +1,4 @@
-// The tools run with the runner `.agents/runner.json` names: Bun (`bunx --bun`) unless it says
+// The tools run with the runner `.agents/runner.json` names: Bun (`bun x --bun`) unless it says
 // node (`npx --yes`). A repo without that file runs them with npx, as before.
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -38,7 +38,7 @@ test("with runner node the tools run with npx", () => {
   assert.deepEqual([...new Set(repo.programs())], ["npx"]);
 });
 
-test("with runner.json and no runner the tools run with bunx --bun, each at an exact version", () => {
+test("with runner.json and no runner the tools run with bun x --bun, each at an exact version", () => {
   const repo = installedRepo({ cloud: "0.9.0" });
   repo.write(".agents/runner.json", { tools: TOOLS });
 
@@ -46,20 +46,20 @@ test("with runner.json and no runner the tools run with bunx --bun, each at an e
 
   assert.equal(r.status, 0, r.err);
   assert.ok(repo.programs().length > 0);
-  assert.deepEqual([...new Set(repo.programs())], ["bunx"]);
-  assert.ok(repo.log().filter((call) => call.program === "bunx").every((call) => call.args[0] === "--bun"));
+  assert.deepEqual([...new Set(repo.programs())], ["bun x"]);
+  assert.ok(repo.log().filter((call) => call.program === "bun x").every((call) => call.args[0] === "--bun"));
   for (const args of repo.allCalls()) assert.match(args[0], EXACT_SPEC);
   assert.ok(repo.calls().some((args) => args.join(" ") === "agent-cloud-kit@0.9.1 init"));
 });
 
-test("a step that fails with Bun says how to run it by hand with bunx --bun", () => {
+test("a step that fails with Bun says how to run it by hand with bun x --bun", () => {
   const repo = installedRepo({ cloud: "0.9.0" });
   repo.write(".agents/runner.json", { tools: TOOLS });
 
   const r = repo.cli(["apply", "--yes"], { env: { FAKE_FAIL: "agent-cloud-kit" } });
 
   assert.equal(r.status, 1);
-  assert.match(r.err, /agent-cloud-kit init falló; corre 'bunx --bun agent-cloud-kit@0\.9\.1 init'/);
+  assert.match(r.err, /agent-cloud-kit init falló; corre 'bun x --bun agent-cloud-kit@0\.9\.1 init'/);
 });
 
 test("repoMode and toolText follow runner.json; a runner does not take a GitHub spec", () => {
@@ -76,7 +76,7 @@ test("repoMode and toolText follow runner.json; a runner does not take a GitHub 
 
   repo.write(".agents/runner.json", { tools: { "agent-cloud-kit": "1.1.0" } });
   assert.deepEqual(repoMode(repo.main), { kind: "runner", runner: "bun", tools: { "agent-cloud-kit": "1.1.0" } });
-  assert.equal(toolText(repo.main, args), "bunx --bun agent-cloud-kit@1.1.0 init --name 'a b'");
+  assert.equal(toolText(repo.main, args), "bun x --bun agent-cloud-kit@1.1.0 init --name 'a b'");
   assert.throws(() => toolText(repo.main, ["github:ramon-sg/claude-repo-guard#v0.2.0", "doctor"]), /with a version/);
   assert.throws(() => toolText(repo.main, ["@ramon-sg/issue-flow", "doctor"]), /with a version/);
 });
@@ -91,7 +91,7 @@ const LATEST = {
   "agent-cloud-kit": "1.0.0",
 };
 // The runs that change the repo: each tool's apply, init or install, not the reads before them (doctor, labels, candidates).
-const applies = (repo) => repo.log().filter((call) => ["npx", "bunx"].includes(call.program) && call.args.some((arg) => ["apply", "init", "install"].includes(arg)));
+const applies = (repo) => repo.log().filter((call) => ["npx", "bun x"].includes(call.program) && call.args.some((arg) => ["apply", "init", "install"].includes(arg)));
 const change = { env: { FAKE_NPM: JSON.stringify(LATEST) } };
 
 // A repo in runner mode with every tool pinned at its latest, so nothing else is offered.
@@ -117,14 +117,14 @@ test("--runner node in a bun repo writes node and reruns each tool's apply with 
   assert.match(JSON.stringify(repo.read(".claude/settings.json")), /npx --yes @ramon-sg\/issue-flow@0\.6\.0/);
 });
 
-test("--runner bun in a node repo reruns the tools with bunx", () => {
+test("--runner bun in a node repo reruns the tools with bun x", () => {
   const repo = runnerRepo({ runner: "node" });
 
   const r = repo.cli(["apply", "--yes", "--runner", "bun"], change);
 
   assert.equal(r.status, 0, `${r.out}\n${r.err}`);
   assert.equal(repo.read(".agents/runner.json").runner, "bun");
-  assert.deepEqual([...new Set(applies(repo).map((call) => call.program))], ["bunx"]);
+  assert.deepEqual([...new Set(applies(repo).map((call) => call.program))], ["bun x"]);
 });
 
 test("--runner with the runner the repo has rewrites with it: it offers the step and reruns every tool's apply, leaving runner.json as it is", () => {
@@ -211,7 +211,7 @@ test("packageManager belongs to a repo with dependencies of its own: --runner le
   assert.equal(repo.read(".agents/runner.json").runner, "node");
 });
 
-test("--runner node in a new repo writes runner.json with node, whatever bunx is there", () => {
+test("--runner node in a new repo writes runner.json with node, whatever bun is there", () => {
   const repo = makeFreshRepo();
 
   const r = repo.cli(["apply", "--yes", "--runner", "node"], change);
@@ -244,7 +244,7 @@ test("tools run for a --pr clone do not see CLAUDE_PROJECT_DIR", () => {
 
   assert.equal(r.status, 0, `${r.out}\n${r.err}`);
   // Only the tools that ran in the clone: opening the PR runs in the checkout itself, where the variable is right.
-  const tools = repo.log().filter((call) => ["npx", "bunx"].includes(call.program) && /agent-kitchen-pr-/.test(call.cwd));
+  const tools = repo.log().filter((call) => ["npx", "bun x"].includes(call.program) && /agent-kitchen-pr-/.test(call.cwd));
   assert.ok(tools.length > 0, "a tool ran");
   assert.deepEqual(tools.filter((call) => call.projectDir !== null), []);
 });

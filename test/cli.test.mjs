@@ -2,7 +2,7 @@
 // did; the bare command still works but says to use `apply`; and every text that tells the
 // person what to run says `apply`.
 import { spawnSync } from "node:child_process";
-import { rmSync, symlinkSync } from "node:fs";
+import { mkdirSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -114,22 +114,21 @@ test("a newer agent-kitchen is run with node's npx when node ran this one", () =
 });
 
 // Whether the real bun runs here (an asdf shim with no version set fails, so `which` is not enough).
-// Bun looks a program up in its own folder before PATH, so the fake bunx only wins if bun runs
-// from a symlink in the fake bin folder, where no real bunx sits beside it.
+// Bun looks a program up in its own folder before PATH, so the real bun runs from a symlink with
+// another name in a folder of its own: its `bun x` then finds the fake bun on the PATH.
 const bun = spawnSync("bun", ["-e", "console.log(process.execPath)"], { encoding: "utf8" });
 const bunSkip = bun.status === 0 ? false : "bun is not usable on this machine (`bun --version` fails)";
 
-test("a newer agent-kitchen is run with bunx --bun when bun ran this one", { skip: bunSkip }, () => {
+test("a newer agent-kitchen is run with bun x --bun when bun ran this one", { skip: bunSkip }, () => {
   const repo = makeRepo();
   const npm = JSON.stringify({ "agent-kitchen": "9.0.0", "@ramon-sg/issue-flow": "0.2.0", "agent-cloud-kit": "0.9.1" });
-  const runtime = join(repo.tmp, "bin", "bun");
-  // The fake bin has a fake `bun` (it answers `--version`); the real one takes its place.
-  rmSync(runtime, { force: true });
+  mkdirSync(join(repo.tmp, "real-bun"));
+  const runtime = join(repo.tmp, "real-bun", "bun-runtime");
   symlinkSync(bun.stdout.trim(), runtime);
 
   const handed = repo.cli(["--dry-run", "--skip", "skills"], { runtime, env: { FAKE_NPM: npm } });
 
   assert.equal(handed.status, 0, handed.err);
-  assert.deepEqual(repo.programs(), ["bunx"]);
+  assert.deepEqual(repo.programs(), ["bun x"]);
   assert.deepEqual(repo.allCalls(), [["agent-kitchen@9.0.0", "--dry-run", "--skip", "skills"]]);
 });

@@ -1,6 +1,6 @@
 {
   "name": "agent-kitchen",
-  "version": "0.13.0",
+  "version": "0.13.1",
   "description": "One command to install, update and check a repo's agent tooling: the issue flow and its skills, the general skills, Claude cloud sessions, claude-repo-guard and the installed-versions rule in AGENTS.md.",
   "license": "MIT",
   "type": "module",
@@ -28,7 +28,7 @@
   },
   "devDependencies": {
     "@clack/prompts": "1.8.1",
-    "@ramon-sg/runner": "1.0.0",
+    "@ramon-sg/runner": "1.0.1",
     "@types/node": "^24.0.0",
     "esbuild": "0.28.2",
     "typescript": "^5.9.3"

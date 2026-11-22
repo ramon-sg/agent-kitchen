@@ -77,8 +77,8 @@ test("doctor notes a piece the repo left out and does not ask its tool", () => {
   assert.ok(repo.allCalls().every((args) => !args[0].startsWith("github:ramon-sg/claude-repo-guard")));
 });
 
-// A PATH where bunx is missing: the fake npx, node, and the system's own folders.
-const pathWithoutBunx = (repo) => {
+// A PATH where bun is missing: the fake npx, node, and the system's own folders.
+const pathWithoutBun = (repo) => {
   const dir = join(repo.tmp, "nobun");
   mkdirSync(dir);
   symlinkSync(process.execPath, join(dir, "node"));
@@ -89,7 +89,7 @@ const pathWithoutBunx = (repo) => {
 // What runner.json pins for installedRepo's pieces, so their checks pass in runner mode.
 const PINNED = { "@ramon-sg/issue-flow": "0.2.0", "@ramon-sg/skills-manager": "1.5.0", "@ramon-sg/claude-repo-guard": "0.8.0", "agent-cloud-kit": "0.9.1" };
 
-test("doctor shows one runner line when the repo has runner.json and its bunx runs", () => {
+test("doctor shows one runner line when the repo has runner.json and its bun runs", () => {
   const repo = installedRepo();
   repo.write(".agents/runner.json", { runner: "bun", tools: PINNED });
 
@@ -100,7 +100,7 @@ test("doctor shows one runner line when the repo has runner.json and its bunx ru
   assert.equal(r.status, 0);
 });
 
-test("doctor in runner mode runs the guard from npm with bunx, like the other tools, with no stack trace", () => {
+test("doctor in runner mode runs the guard from npm with bun x, like the other tools, with no stack trace", () => {
   const repo = installedRepo();
   repo.write(".agents/runner.json", { runner: "bun", tools: PINNED });
 
@@ -108,8 +108,8 @@ test("doctor in runner mode runs the guard from npm with bunx, like the other to
 
   assert.doesNotMatch(r.err + r.out, /\n\s+at .*\(/);
   const calls = repo.allCalls().map((args, i) => ({ args, program: repo.programs()[i] }));
-  assert.ok(calls.some((c) => c.args.join(" ") === "@ramon-sg/claude-repo-guard@0.8.0 doctor --json" && c.program === "bunx"));
-  assert.ok(calls.every((c) => !c.args[0].startsWith("github:") && c.program === "bunx"));
+  assert.ok(calls.some((c) => c.args.join(" ") === "@ramon-sg/claude-repo-guard@0.8.0 doctor --json" && c.program === "bun x"));
+  assert.ok(calls.every((c) => !c.args[0].startsWith("github:") && c.program === "bun x"));
 });
 
 test("doctor in runner mode fails the guard when its manifest is there but runner.json does not pin it", () => {
@@ -123,13 +123,13 @@ test("doctor in runner mode fails the guard when its manifest is there but runne
   assert.ok(repo.allCalls().every((args) => !args[0].includes("claude-repo-guard")));
 });
 
-test("doctor fails the runner line when bunx is not on the PATH", () => {
+test("doctor fails the runner line when bun is not on the PATH", () => {
   const repo = installedRepo();
   repo.write(".agents/runner.json", { runner: "bun", tools: PINNED });
 
-  const r = repo.cli(["doctor"], { env: { PATH: pathWithoutBunx(repo) } });
+  const r = repo.cli(["doctor"], { env: { PATH: pathWithoutBun(repo) } });
 
-  assert.match(r.out, /✗ runner: .*bunx/);
+  assert.match(r.out, /✗ runner: .*needs bun,/);
   assert.equal(r.status, 1);
 });
 

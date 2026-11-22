@@ -6,7 +6,7 @@
  * and each lookup runs once per process. A lookup that fails, or takes over 20 seconds,
  * gives null: the piece is shown, not offered. git never asks for credentials here.
  *
- * The runner is the one `.agents/runner.json` names: `bunx --bun <pkg>@<version>` with Bun (the
+ * The runner is the one `.agents/runner.json` names: `bun x --bun <pkg>@<version>` with Bun (the
  * default) and `npx --yes <pkg>@<version>` with Node. A repo without that file runs every tool
  * with `npx --yes <spec>`, as before it existed.
  *
@@ -400,7 +400,7 @@ function toolInvocation(root: string, args: string[]): { file: string; args: str
  * @param root - The repo.
  * @param args - The spec and the tool's arguments.
  * @returns `npx <args>` in legacy mode, else the runner's command, quoted for a shell.
- * @example toolText(root, ["agent-cloud-kit@1.1.0", "init"]) // "bunx --bun agent-cloud-kit@1.1.0 init"
+ * @example toolText(root, ["agent-cloud-kit@1.1.0", "init"]) // "bun x --bun agent-cloud-kit@1.1.0 init"
  */
 export function toolText(root: string, args: string[]): string {
   const mode = repoMode(root);

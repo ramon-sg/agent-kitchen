@@ -57,7 +57,7 @@ function sameFile(root: string): boolean {
 }
 
 /**
- * Whether the rule is pointless here: a repo that runs its tools through bunx or npx has no
+ * Whether the rule is pointless here: a repo that runs its tools through `bun x` or npx has no
  * node_modules of the ecosystem's, so the rule only matters if it has dependencies of its own.
  * Repos without runner.json keep the rule as before.
  * @param root - The repo.
